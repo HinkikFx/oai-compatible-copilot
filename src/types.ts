@@ -94,6 +94,14 @@ export interface HFModelItem {
 	 * If not specified, falls back to global `oaicopilot.delay` configuration.
 	 */
 	delay?: number;
+
+	/**
+	 * Model-specific maximum number of requests per minute.
+	 * When set, requests exceeding this limit will be automatically delayed
+	 * instead of receiving a 429 error from the API.
+	 * If not specified, falls back to global `oaicopilot.maxRequestsPerMinute` configuration.
+	 */
+	maxRequestsPerMinute?: number;
 }
 
 /**

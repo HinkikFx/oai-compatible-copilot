@@ -356,6 +356,12 @@
 								"default": 0,
 								"minimum": 0,
 								"description": "Model-specific delay in milliseconds between consecutive requests. If not specified, falls back to global oaicopilot.delay configuration."
+							},
+							"maxRequestsPerMinute": {
+								"type": "number",
+								"default": 0,
+								"minimum": 0,
+								"description": "Model-specific maximum requests per minute. Requests exceeding this limit are automatically delayed instead of receiving a 429 error. Set to 0 to disable. Overrides the global oaicopilot.maxRequestsPerMinute setting."
 							}
 						},
 						"required": [
@@ -416,6 +422,12 @@
 						}
 					},
 					"description": "Retry configuration for handling api errors like [429, 500, 502, 503, 504]."
+				},
+				"oaicopilot.maxRequestsPerMinute": {
+					"type": "number",
+					"default": 0,
+					"minimum": 0,
+					"description": "Global maximum number of requests per minute across all models. Requests exceeding this limit are automatically delayed instead of receiving a 429 error. Set to 0 to disable. Per-model 'maxRequestsPerMinute' takes precedence when set."
 				},
 				"oaicopilot.delay": {
 					"type": "number",

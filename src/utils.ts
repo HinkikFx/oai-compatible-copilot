@@ -9,6 +9,81 @@ const RETRY_INTERVAL_MS = 1000;
 const RETRY_BACKOFF_FACTOR = 2;
 const RETRY_MAX_INTERVAL_MS = 60000;
 
+/** Sliding-window duration for rate limiting (1 minute in milliseconds). */
+const RATE_LIMIT_WINDOW_MS = 60_000;
+/** Buffer added to avoid boundary race when computing throttle wait time. */
+const BOUNDARY_BUFFER_MS = 1;
+
+/**
+ * Parse the value of a `Retry-After` HTTP response header into milliseconds.
+ * Accepts both delay-seconds (integer) and HTTP-date formats.
+ * Returns undefined when the header value cannot be parsed.
+ */
+export function parseRetryAfterMs(retryAfterHeader: string): number | undefined {
+	const trimmed = retryAfterHeader.trim();
+	if (!trimmed) {
+		return undefined;
+	}
+
+	// Try numeric seconds first (most common for rate-limit responses)
+	const seconds = parseFloat(trimmed);
+	if (!isNaN(seconds) && seconds >= 0) {
+		return Math.ceil(seconds * 1000);
+	}
+
+	// Try HTTP-date format
+	const date = new Date(trimmed);
+	if (!isNaN(date.getTime())) {
+		const delayMs = date.getTime() - Date.now();
+		return delayMs > 0 ? delayMs : 0;
+	}
+
+	return undefined;
+}
+
+/**
+ * Sliding-window rate limiter.
+ * Call `throttle(maxRpm)` before each request; it will await until the request
+ * can be sent without exceeding `maxRpm` requests per minute.
+ */
+export class RequestRateLimiter {
+	private _timestamps: number[] = [];
+
+	/**
+	 * Wait until sending the next request stays within the given RPM limit.
+	 * @param maxRequestsPerMinute Maximum number of requests allowed per 60-second window.
+	 */
+	async throttle(maxRequestsPerMinute: number): Promise<void> {
+		if (maxRequestsPerMinute <= 0) {
+			return;
+		}
+
+		const windowMs = RATE_LIMIT_WINDOW_MS;
+
+		while (true) {
+			const now = Date.now();
+			// Evict timestamps older than the sliding window
+			this._timestamps = this._timestamps.filter((t) => t > now - windowMs);
+
+			if (this._timestamps.length < maxRequestsPerMinute) {
+				// Under the limit – record this request and proceed
+				this._timestamps.push(now);
+				return;
+			}
+
+			// Over the limit – wait until the oldest timestamp falls outside the window
+			const oldest = this._timestamps[0];
+			const waitMs = oldest + windowMs - now + BOUNDARY_BUFFER_MS;
+			logger.warn("rateLimiter.throttle", {
+				maxRequestsPerMinute,
+				currentCount: this._timestamps.length,
+				waitMs,
+			});
+			await new Promise<void>((resolve) => setTimeout(resolve, waitMs));
+		}
+	}
+}
+
 // HTTP status codes that should trigger a retry
 const RETRYABLE_STATUS_CODES = [429, 500, 502, 503, 504];
 
@@ -310,13 +385,18 @@ export async function executeWithRetry<T>(fn: () => Promise<T>, retryConfig: Ret
 				throw lastError;
 			}
 
+			// Honor the Retry-After header value when present (attached by the caller)
+			const retryAfterMs = (lastError as { retryAfterMs?: number }).retryAfterMs;
+
 			// Exponential backoff: interval doubles each attempt, capped at 60s
-			const delayMs = Math.min(baseIntervalMs * Math.pow(RETRY_BACKOFF_FACTOR, attempt), RETRY_MAX_INTERVAL_MS);
+			const backoffMs = Math.min(baseIntervalMs * Math.pow(RETRY_BACKOFF_FACTOR, attempt), RETRY_MAX_INTERVAL_MS);
+			const delayMs = retryAfterMs !== undefined ? Math.max(retryAfterMs, backoffMs) : backoffMs;
 
 			logger.warn("retry.attempt", {
 				attempt: attempt + 1,
 				maxAttempts,
 				delayMs,
+				retryAfterMs,
 				errorName: lastError.name,
 				errorMessage: lastError.message,
 			});

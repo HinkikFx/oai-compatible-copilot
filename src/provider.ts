@@ -13,7 +13,7 @@ import type { HFModelItem } from "./types";
 
 import type { OllamaRequestBody } from "./ollama/ollamaTypes";
 
-import { parseModelId, createRetryConfig, executeWithRetry, normalizeUserModels } from "./utils";
+import { parseModelId, createRetryConfig, executeWithRetry, normalizeUserModels, parseRetryAfterMs, RequestRateLimiter } from "./utils";
 
 import { prepareLanguageModelChatInformation } from "./provideModel";
 import { countMessageTokens } from "./provideToken";
@@ -34,6 +34,9 @@ import { logger } from "./logger";
 export class HuggingFaceChatModelProvider implements LanguageModelChatProvider {
 	/** Track last request completion time for delay calculation. */
 	private _lastRequestTime: number | null = null;
+
+	/** Per-model-key rate limiters (keyed by model id or configId). */
+	private readonly _rateLimiters = new Map<string, RequestRateLimiter>();
 
 	private readonly _geminiToolCallMetaByCallId = new Map<string, GeminiToolCallMeta>();
 	private readonly _openaiResponsesPreviousResponseIdUnsupportedBaseUrls = new Set<string>();
@@ -172,6 +175,22 @@ export class HuggingFaceChatModelProvider implements LanguageModelChatProvider {
 				}
 			}
 
+			// Apply per-minute rate limiting (proactive throttling to avoid 429s)
+			const modelMaxRpm = um?.maxRequestsPerMinute;
+			const globalMaxRpm = config.get<number>("oaicopilot.maxRequestsPerMinute", 0);
+			const maxRpm = modelMaxRpm !== undefined ? modelMaxRpm : globalMaxRpm;
+			if (maxRpm > 0) {
+				// Use the full model.id (which may include ::configId suffix) so different
+				// configurations of the same base model get independent rate limiters.
+				const rateLimiterKey = model.id;
+				if (!this._rateLimiters.has(rateLimiterKey)) {
+					this._rateLimiters.set(rateLimiterKey, new RequestRateLimiter());
+				}
+				const rateLimiter = this._rateLimiters.get(rateLimiterKey)!;
+				logger.debug("rateLimiter.check", { modelId: model.id, maxRpm });
+				await rateLimiter.throttle(maxRpm);
+			}
+
 			// Get API key for the model's provider
 			const provider = um?.owned_by;
 			const useGenericKey = !um?.baseUrl;
@@ -229,9 +248,14 @@ export class HuggingFaceChatModelProvider implements LanguageModelChatProvider {
 					if (!res.ok) {
 						const errorText = await res.text();
 						console.error("[Ollama Provider] Ollama API error response", errorText);
-						throw new Error(
+						const error = new Error(
 							`Ollama API error: [${res.status}] ${res.statusText}${errorText ? `\n${errorText}` : ""}\nURL: ${url}`
 						);
+						const retryAfterMs = parseRetryAfterMs(res.headers.get("Retry-After") ?? "");
+						if (retryAfterMs !== undefined) {
+							(error as { retryAfterMs?: number }).retryAfterMs = retryAfterMs;
+						}
+						throw error;
 					}
 
 					return res;
@@ -272,9 +296,14 @@ export class HuggingFaceChatModelProvider implements LanguageModelChatProvider {
 					if (!res.ok) {
 						const errorText = await res.text();
 						console.error("[Anthropic Provider] Anthropic API error response", errorText);
-						throw new Error(
+						const error = new Error(
 							`Anthropic API error: [${res.status}] ${res.statusText}${errorText ? `\n${errorText}` : ""}\nURL: ${url}`
 						);
+						const retryAfterMs = parseRetryAfterMs(res.headers.get("Retry-After") ?? "");
+						if (retryAfterMs !== undefined) {
+							(error as { retryAfterMs?: number }).retryAfterMs = retryAfterMs;
+						}
+						throw error;
 					}
 
 					return res;
@@ -353,6 +382,10 @@ export class HuggingFaceChatModelProvider implements LanguageModelChatProvider {
 							);
 							(error as { status?: number; errorText?: string }).status = res.status;
 							(error as { status?: number; errorText?: string }).errorText = errorText;
+							const retryAfterMs = parseRetryAfterMs(res.headers.get("Retry-After") ?? "");
+							if (retryAfterMs !== undefined) {
+								(error as { retryAfterMs?: number }).retryAfterMs = retryAfterMs;
+							}
 							throw error;
 						}
 
@@ -443,9 +476,14 @@ export class HuggingFaceChatModelProvider implements LanguageModelChatProvider {
 					if (!res.ok) {
 						const errorText = await res.text();
 						console.error("[Gemini Provider] Gemini API error response", errorText);
-						throw new Error(
+						const error = new Error(
 							`Gemini API error: [${res.status}] ${res.statusText}${errorText ? `\n${errorText}` : ""}\nURL: ${url}`
 						);
+						const retryAfterMs = parseRetryAfterMs(res.headers.get("Retry-After") ?? "");
+						if (retryAfterMs !== undefined) {
+							(error as { retryAfterMs?: number }).retryAfterMs = retryAfterMs;
+						}
+						throw error;
 					}
 
 					return res;
@@ -482,9 +520,14 @@ export class HuggingFaceChatModelProvider implements LanguageModelChatProvider {
 					if (!res.ok) {
 						const errorText = await res.text();
 						console.error("[OAI Compatible Model Provider] OAI Compatible API error response", errorText);
-						throw new Error(
+						const error = new Error(
 							`OAI Compatible API error: [${res.status}] ${res.statusText}${errorText ? `\n${errorText}` : ""}\nURL: ${url}`
 						);
+						const retryAfterMs = parseRetryAfterMs(res.headers.get("Retry-After") ?? "");
+						if (retryAfterMs !== undefined) {
+							(error as { retryAfterMs?: number }).retryAfterMs = retryAfterMs;
+						}
+						throw error;
 					}
 
 					return res;
