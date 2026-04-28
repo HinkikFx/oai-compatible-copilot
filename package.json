@@ -112,18 +112,18 @@
 			"title": "OAI Compatible Copilot",
 			"properties": {
 				"oaicopilot.logLevel": {
-				"type": "string",
-				"default": "off",
-				"enum": [
-					"off",
-					"debug",
-					"info",
-					"warn",
-					"error"
-				],
-				"description": "Debug log level. Logs are written to ~/.copilot/oaicopilot/logs/ as JSON lines. Default is 'off' (no logging)."
-			},
-			"oaicopilot.baseUrl": {
+					"type": "string",
+					"default": "off",
+					"enum": [
+						"off",
+						"debug",
+						"info",
+						"warn",
+						"error"
+					],
+					"description": "Debug log level. Logs are written to ~/.copilot/oaicopilot/logs/ as JSON lines. Default is 'off' (no logging)."
+				},
+				"oaicopilot.baseUrl": {
 					"type": "string",
 					"default": "https://router.huggingface.co/v1",
 					"description": "The base URL for the Openai Compatible Inference API. Default value is Hugging Face."
@@ -148,15 +148,15 @@
 							},
 							"owned_by": {
 								"type": "string",
-								"description": "Model provider (e.g., 'zai', 'openai')."
+								"description": "Model provider (e.g., 'zai', 'openai'). Optional: if not provided, falls back to the generic API key."
 							},
 							"provider": {
 								"type": "string",
-								"description": "(Alias of owned_by) Model provider (e.g., 'zai', 'openai')."
+								"description": "(Optional, alias of owned_by) Model provider (e.g., \"zai\", \"openai\")."
 							},
 							"provide": {
 								"type": "string",
-								"description": "(Alias of owned_by) Model provider (e.g., 'zai', 'openai')."
+								"description": "(Optional, alias of owned_by) Model provider (e.g., \"zai\", \"openai\")."
 							},
 							"family": {
 								"type": "string",
@@ -366,23 +366,6 @@
 						},
 						"required": [
 							"id"
-						],
-						"anyOf": [
-							{
-								"required": [
-									"owned_by"
-								]
-							},
-							{
-								"required": [
-									"provider"
-								]
-							},
-							{
-								"required": [
-									"provide"
-								]
-							}
 						]
 					},
 					"description": "A list of preferred models to use. If provided, these models will be used directly instead of fetching from the API."

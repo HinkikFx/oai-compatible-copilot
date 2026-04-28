@@ -73,11 +73,28 @@ export class HuggingFaceChatModelProvider implements LanguageModelChatProvider {
 	 * @returns A promise that resolves to the number of tokens
 	 */
 	async provideTokenCount(
-		_model: LanguageModelChatInformation,
+		model: LanguageModelChatInformation,
 		text: string | LanguageModelChatRequestMessage,
 		_token: CancellationToken
 	): Promise<number> {
-		return countMessageTokens(text, { includeReasoningInRequest: true });
+		// Look up model-specific config so token counting matches what is actually sent
+		// (e.g. reasoning/thinking tokens are only included when include_reasoning_in_request is true)
+		const config = vscode.workspace.getConfiguration();
+		const userModels = normalizeUserModels(config.get<unknown>("oaicopilot.models", []));
+		const parsedModelId = parseModelId(model.id);
+		let um: HFModelItem | undefined = userModels.find(
+			(m) =>
+				m.id === parsedModelId.baseId &&
+				((parsedModelId.configId && m.configId === parsedModelId.configId) ||
+					(!parsedModelId.configId && !m.configId))
+		);
+		if (!um) {
+			um = userModels.find((m) => m.id === parsedModelId.baseId);
+		}
+		const modelConfig = {
+			includeReasoningInRequest: um?.include_reasoning_in_request ?? false,
+		};
+		return countMessageTokens(text, modelConfig);
 	}
 
 	/**
