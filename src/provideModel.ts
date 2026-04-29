@@ -1,8 +1,8 @@
 import * as vscode from "vscode";
-import { CancellationToken, LanguageModelChatInformation } from "vscode";
+import { CancellationToken, LanguageModelChatInformation, LanguageModelConfigurationSchema } from "vscode";
 
-import type { HFApiMode, HFModelItem, HFModelsResponse } from "./types";
-import { normalizeUserModels } from "./utils";
+import type { HFApiMode, HFModelItem, HFModelsResponse, ReasoningConfig } from "./types";
+import { normalizeUserModels, budgetToThinkingLevel, type ThinkingLevel } from "./utils";
 import { VersionManager } from "./versionManager";
 import { fetchGeminiModels } from "./gemini/geminiApi";
 import { fetchOllamaModels } from "./ollama/ollamaApi";
@@ -11,6 +11,93 @@ import { logger } from "./logger";
 const DEFAULT_CONTEXT_LENGTH = 128000;
 const DEFAULT_MAX_TOKENS = 4096;
 const EXTENSION_LABEL = "OAICopilot";
+
+/**
+ * Build the `configurationSchema` for a model if it supports any thinking/reasoning level control.
+ * The returned schema exposes a `thinking_level` navigation property in the model picker.
+ */
+function buildThinkingLevelSchema(m: HFModelItem): LanguageModelConfigurationSchema | undefined {
+	// OpenAI o-series: reasoning_effort
+	if (m.reasoning_effort !== undefined) {
+		return {
+			properties: {
+				thinking_level: {
+					type: "string",
+					enum: ["low", "medium", "high", "max"],
+					enumItemLabels: ["Low", "Medium", "High", "Max"],
+					default: m.reasoning_effort,
+					description: "Reasoning effort level",
+					group: "navigation",
+				},
+			},
+		};
+	}
+
+	// QwQ-style: enable_thinking + optional thinking_budget
+	if (m.enable_thinking !== undefined) {
+		let defaultLevel: ThinkingLevel;
+		if (m.enable_thinking === false) {
+			defaultLevel = "none";
+		} else if (m.thinking_budget !== undefined) {
+			defaultLevel = budgetToThinkingLevel(m.thinking_budget);
+		} else {
+			// thinking is enabled but no budget is specified — default to medium
+			defaultLevel = "medium";
+		}
+		return {
+			properties: {
+				thinking_level: {
+					type: "string",
+					enum: ["none", "low", "medium", "high", "max"],
+					enumItemLabels: ["None", "Low", "Medium", "High", "Max"],
+					default: defaultLevel,
+					description: "Thinking budget level",
+					group: "navigation",
+				},
+			},
+		};
+	}
+
+	// Zai-style: thinking.type
+	if (m.thinking?.type !== undefined) {
+		return {
+			properties: {
+				thinking_level: {
+					type: "string",
+					enum: ["none", "enabled"],
+					enumItemLabels: ["None", "Enabled"],
+					default: m.thinking.type === "disabled" ? "none" : "enabled",
+					description: "Thinking mode",
+					group: "navigation",
+				},
+			},
+		};
+	}
+
+	// OpenRouter-style: reasoning
+	if (m.reasoning !== undefined) {
+		const reasoningConfig = m.reasoning as ReasoningConfig;
+		const effort = reasoningConfig.effort ?? "medium";
+		const knownLevels: ThinkingLevel[] = ["low", "medium", "high", "max"];
+		const defaultLevel: ThinkingLevel = knownLevels.includes(effort as ThinkingLevel)
+			? (effort as ThinkingLevel)
+			: "medium";
+		return {
+			properties: {
+				thinking_level: {
+					type: "string",
+					enum: ["low", "medium", "high", "max"],
+					enumItemLabels: ["Low", "Medium", "High", "Max"],
+					default: defaultLevel,
+					description: "Reasoning effort level",
+					group: "navigation",
+				},
+			},
+		};
+	}
+
+	return undefined;
+}
 
 /**
  * Get the list of available language models contributed by this provider
@@ -41,6 +128,7 @@ export async function prepareLanguageModelChatInformation(
 				const modelId = m.configId ? `${m.id}::${m.configId}` : m.id;
 				const modelName = m.displayName || (m.configId ? `${m.id}::${m.configId}` : `${m.id}`);
 				const detail = m.owned_by ? `${m.owned_by} (${EXTENSION_LABEL})` : EXTENSION_LABEL;
+				const configurationSchema = buildThinkingLevelSchema(m);
 
 				return {
 					id: modelId,
@@ -55,6 +143,7 @@ export async function prepareLanguageModelChatInformation(
 						toolCalling: true,
 						imageInput: m?.vision ?? false,
 					},
+					...(configurationSchema !== undefined ? { configurationSchema } : {}),
 				} satisfies LanguageModelChatInformation;
 			});
 	} else {
