@@ -14,7 +14,8 @@ const LOG_LEVEL_PRIORITY: Record<LogLevel, number> = {
 };
 
 const LOG_RETENTION_DAYS = 7;
-const SENSITIVE_HEADER_KEYS = ["Authorization", "x-api-key", "x-goog-api-key"];
+const SENSITIVE_HEADER_KEYS = ["authorization", "x-api-key", "x-goog-api-key", "api-key", "apikey"];
+const SENSITIVE_DATA_KEY_PATTERN = /(api[_-]?key|authorization|access[_-]?token|refresh[_-]?token|secret|password)/i;
 
 class Logger {
 	private _level: LogLevel = "off";
@@ -73,7 +74,7 @@ class Logger {
 	sanitizeHeaders(headers: Record<string, string>): Record<string, string> {
 		const sanitized: Record<string, string> = {};
 		for (const [key, value] of Object.entries(headers)) {
-			if (SENSITIVE_HEADER_KEYS.includes(key)) {
+			if (SENSITIVE_HEADER_KEYS.includes(key.toLowerCase())) {
 				// Extract the token part after "Bearer " if present
 				const tokenPrefix = value.startsWith("Bearer ") ? "Bearer " : "";
 				const token = value.startsWith("Bearer ") ? value.slice(7) : value;
@@ -98,6 +99,8 @@ class Logger {
 		for (const [key, value] of Object.entries(data)) {
 			if (key === "headers" && value && typeof value === "object" && !Array.isArray(value)) {
 				result[key] = this.sanitizeHeaders(value as Record<string, string>);
+			} else if (SENSITIVE_DATA_KEY_PATTERN.test(key) && typeof value === "string") {
+				result[key] = value.length <= 4 ? "***" : value.slice(0, 4) + "***";
 			} else if (value && typeof value === "object" && !Array.isArray(value)) {
 				result[key] = this.sanitizeData(value as Record<string, unknown>);
 			} else {

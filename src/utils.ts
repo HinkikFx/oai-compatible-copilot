@@ -73,7 +73,7 @@ export class RequestRateLimiter {
 
 			// Over the limit – wait until the oldest timestamp falls outside the window
 			const oldest = this._timestamps[0];
-			const waitMs = oldest + windowMs - now + BOUNDARY_BUFFER_MS;
+			const waitMs = Math.max(0, oldest + windowMs - now + BOUNDARY_BUFFER_MS);
 			logger.warn("rateLimiter.throttle", {
 				maxRequestsPerMinute,
 				currentCount: this._timestamps.length,
@@ -369,7 +369,7 @@ export async function executeWithRetry<T>(fn: () => Promise<T>, retryConfig: Ret
 		: RETRYABLE_STATUS_CODES;
 	let lastError: Error | undefined;
 
-	for (let attempt = 0; attempt <= maxAttempts; attempt++) {
+	for (let attempt = 0; attempt < maxAttempts; attempt++) {
 		try {
 			return await fn();
 		} catch (error) {
@@ -381,7 +381,7 @@ export async function executeWithRetry<T>(fn: () => Promise<T>, retryConfig: Ret
 			const isRetryableNetworkError = networkErrorPatterns.some((pattern) => lastError?.message.includes(pattern));
 			const isRetryableError = isRetryableStatusError || isRetryableNetworkError;
 
-			if (!isRetryableError || attempt === maxAttempts) {
+			if (!isRetryableError || attempt === maxAttempts - 1) {
 				throw lastError;
 			}
 

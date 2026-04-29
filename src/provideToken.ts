@@ -3,6 +3,7 @@ import { LanguageModelChatRequestMessage, LanguageModelChatTool } from "vscode";
 import { tokenizerManager } from "./tokenizer/tokenizerManager";
 import { getImageDimensions } from "./tokenizer/imageUtils";
 import { createDataUrl } from "./utils";
+const OPENAI_RESPONSES_STATEFUL_MARKER_MIME = "application/vnd.oaicopilot.stateful-marker";
 
 /*
  * Each message comes with 3 tokens per message due to special characters
@@ -28,13 +29,18 @@ export async function countMessageTokens(
 				// Estimate tokens directly for plain text
 				totalTokens += await textTokenLength(part.value);
 			} else if (part instanceof vscode.LanguageModelDataPart) {
-				// Estimate tokens for image or data parts based on type
-				if (part.mimeType.startsWith("image/")) {
-					totalTokens += calculateImageTokenCost(createDataUrl(part));
-				} else if (part.mimeType === "cache_control") {
+				// Internal provider markers are not sent to upstream models and must not affect token accounting.
+				if (part.mimeType === OPENAI_RESPONSES_STATEFUL_MARKER_MIME || part.mimeType === "cache_control") {
 					/* ignore */
+				} else if (part.mimeType.startsWith("image/")) {
+					try {
+						totalTokens += calculateImageTokenCost(createDataUrl(part));
+					} catch {
+						// Do not fail the chat request because token estimation could not decode an image.
+						totalTokens += calculateNonImageBinaryTokens(part.data.byteLength);
+					}
 				} else {
-					// For other binary data, use a more conservative estimate
+					// For other binary data, use a more conservative estimate.
 					totalTokens += calculateNonImageBinaryTokens(part.data.byteLength);
 				}
 			} else if (part instanceof vscode.LanguageModelToolCallPart) {

@@ -1,7 +1,8 @@
-import { exec } from "child_process";
+import { exec, execFile } from "child_process";
 import { promisify } from "util";
 
 const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 const GIT_OUTPUT_LINE_LIMIT = 500;
 
 export interface GitCommit {
@@ -60,16 +61,18 @@ export async function searchCommits(query: string, cwd: string): Promise<GitComm
 		}
 
 		// Search commits by hash or message, limiting to 10 results
-		const { stdout } = await execAsync(
-			`git log -n 10 --format="%H%n%h%n%s%n%an%n%ad" --date=short ` + `--grep="${query}" --regexp-ignore-case`,
+		const { stdout } = await execFileAsync(
+			"git",
+			["log", "-n", "10", "--format=%H%n%h%n%s%n%an%n%ad", "--date=short", `--grep=${query}`, "--regexp-ignore-case"],
 			{ cwd }
 		);
 
 		let output = stdout;
 		if (!output.trim() && /^[a-f0-9]+$/i.test(query)) {
 			// If no results from grep search and query looks like a hash, try searching by hash
-			const { stdout: hashStdout } = await execAsync(
-				`git log -n 10 --format="%H%n%h%n%s%n%an%n%ad" --date=short ` + `--author-date-order ${query}`,
+			const { stdout: hashStdout } = await execFileAsync(
+				"git",
+				["log", "-n", "10", "--format=%H%n%h%n%s%n%an%n%ad", "--date=short", "--author-date-order", query],
 				{ cwd }
 			).catch(() => ({ stdout: "" }));
 
@@ -105,6 +108,9 @@ export async function searchCommits(query: string, cwd: string): Promise<GitComm
 
 export async function getCommitInfo(hash: string, cwd: string): Promise<string> {
 	try {
+		if (!/^[a-f0-9]{4,40}$/i.test(hash.trim())) {
+			return "Invalid commit hash";
+		}
 		const isInstalled = await checkGitInstalled();
 		if (!isInstalled) {
 			return "Git is not installed";
@@ -121,14 +127,14 @@ export async function getCommitInfo(hash: string, cwd: string): Promise<string> 
 		}
 
 		// Get commit info, stats, and diff separately
-		const { stdout: info } = await execAsync(`git show --format="%H%n%h%n%s%n%an%n%ad%n%b" --no-patch ${hash}`, {
+		const { stdout: info } = await execFileAsync("git", ["show", "--format=%H%n%h%n%s%n%an%n%ad%n%b", "--no-patch", hash.trim()], {
 			cwd,
 		});
 		const [fullHash, shortHash, subject, author, date, body] = info.trim().split("\n");
 
-		const { stdout: stats } = await execAsync(`git show --stat --format="" ${hash}`, { cwd });
+		const { stdout: stats } = await execFileAsync("git", ["show", "--stat", "--format=", hash.trim()], { cwd });
 
-		const { stdout: diff } = await execAsync(`git show --format="" ${hash}`, { cwd });
+		const { stdout: diff } = await execFileAsync("git", ["show", "--format=", hash.trim()], { cwd });
 
 		const summary = [
 			`Commit: ${shortHash} (${fullHash})`,

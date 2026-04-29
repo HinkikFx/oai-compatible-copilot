@@ -350,9 +350,13 @@ export class ConfigViewPanel {
 		const jsUri = webview.asWebviewUri(vscode.Uri.joinPath(assetsRoot, "configView.js"));
 		const csp = [
 			`default-src 'none'`,
-			`img-src ${webview.cspSource} https:`,
-			`style-src ${webview.cspSource} 'unsafe-inline'`,
-			`script-src ${webview.cspSource} 'nonce-${nonce}'`,
+			`base-uri 'none'`,
+			`form-action 'none'`,
+			`img-src ${webview.cspSource} https: data:`,
+			`font-src ${webview.cspSource}`,
+			`style-src ${webview.cspSource}`,
+			`script-src 'nonce-${nonce}'`,
+			`connect-src 'none'`,
 		].join("; ");
 
 		const raw = await vscode.workspace.fs.readFile(templatePath);

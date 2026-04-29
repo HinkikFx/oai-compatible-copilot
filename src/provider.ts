@@ -635,12 +635,13 @@ function parseOpenAIResponsesStatefulMarkerPart(part: unknown): { modelId: strin
 
 	try {
 		const decoded = new TextDecoder().decode(maybe.data);
-		const sep = decoded.indexOf("\\");
+		const separator = "\\";
+		const sep = decoded.indexOf(separator);
 		if (sep <= 0) {
 			return null;
 		}
 		const modelId = decoded.slice(0, sep).trim();
-		const marker = decoded.slice(sep + 1).trim();
+		const marker = decoded.slice(sep + separator.length).trim();
 		if (!modelId || !marker) {
 			return null;
 		}

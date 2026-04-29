@@ -142,11 +142,11 @@ function normalizeGeminiModelPath(modelId: string): string {
 		return "models/gemini-3-pro-preview";
 	}
 
-	const last = raw.includes("/") ? raw.split("/").filter(Boolean).pop() || raw : raw;
-	if (last.startsWith("models/") || last.startsWith("tunedModels/")) {
-		return last;
+	if (raw.startsWith("models/") || raw.startsWith("tunedModels/")) {
+		return raw;
 	}
 
+	const last = raw.includes("/") ? raw.split("/").filter(Boolean).pop() || raw : raw;
 	if (last.includes("..") || last.includes("?") || last.includes("&")) {
 		return "";
 	}
