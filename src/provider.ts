@@ -59,10 +59,13 @@ export class HuggingFaceChatModelProvider implements LanguageModelChatProvider {
 	 * @returns A promise that resolves to the list of available language models
 	 */
 	async provideLanguageModelChatInformation(
-		options: { silent: boolean },
+		options: vscode.PrepareLanguageModelChatModelOptions,
 		_token: CancellationToken
 	): Promise<LanguageModelChatInformation[]> {
-		return prepareLanguageModelChatInformation({ silent: options.silent ?? false }, _token, this.secrets);
+		// VS Code may pass `silent: true` at runtime for background refresh (pre-v5 behaviour).
+		const opts = options as Record<string, unknown>;
+		const silent = typeof opts.silent === "boolean" ? opts.silent : true;
+		return prepareLanguageModelChatInformation({ silent }, _token, this.secrets);
 	}
 
 	/**

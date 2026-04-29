@@ -3,7 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-// version: 4
+// version: 5
 
 declare module "vscode" {
 	/**
@@ -11,9 +11,19 @@ declare module "vscode" {
 	 */
 	export interface ProvideLanguageModelChatResponseOptions {
 		/**
-		 * What extension initiated the request to the language model
+		 * What extension initiated the request to the language model, or
+		 * `undefined` if the request was initiated by other functionality in the editor.
 		 */
 		readonly requestInitiator: string;
+
+		/**
+		 * Per-model configuration provided by the user. This contains values configured
+		 * in the user's language models configuration file, validated against the model's
+		 * {@linkcode LanguageModelChatInformation.configurationSchema configurationSchema}.
+		 */
+		readonly modelConfiguration?: {
+			readonly [key: string]: any;
+		};
 	}
 
 	/**
@@ -51,6 +61,14 @@ declare module "vscode" {
 		readonly category?: { label: string; order: number };
 
 		readonly statusIcon?: ThemeIcon;
+
+		/**
+		 * An optional JSON schema describing the configuration options for this model.
+		 * When set, users can specify per-model configuration in their language models
+		 * configuration file. The configured values are merged into the request options
+		 * when sending chat requests to this model.
+		 */
+		readonly configurationSchema?: LanguageModelConfigurationSchema;
 	}
 
 	export interface LanguageModelChatCapabilities {
@@ -77,7 +95,45 @@ declare module "vscode" {
 		| LanguageModelDataPart
 		| LanguageModelThinkingPart;
 
+	/**
+	 * A [JSON Schema](https://json-schema.org) describing configuration options for a language model.
+	 * Each property in `properties` defines a configurable option using standard JSON Schema fields
+	 * plus additional display hints.
+	 */
+	export type LanguageModelConfigurationSchema = {
+		readonly properties?: {
+			readonly [key: string]: Record<string, any> & {
+				/**
+				 * Human-readable labels for enum values, shown instead of the raw values.
+				 * Must have the same length and order as `enum`.
+				 */
+				readonly enumItemLabels?: string[];
+				/**
+				 * The group this property belongs to. When set to `'navigation'`, the property
+				 * is shown as a primary action in the model picker.
+				 */
+				readonly group?: string;
+			};
+		};
+	};
+
+	/**
+	 * The list of options passed into {@linkcode LanguageModelChatProvider.provideLanguageModelChatInformation}
+	 */
+	export interface PrepareLanguageModelChatModelOptions {
+		/**
+		 * Configuration for the model. This is only present if the provider has declared that it requires configuration.
+		 */
+		readonly configuration?: {
+			readonly [key: string]: any;
+		};
+	}
+
 	export interface LanguageModelChatProvider<T extends LanguageModelChatInformation = LanguageModelChatInformation> {
+		provideLanguageModelChatInformation(
+			options: PrepareLanguageModelChatModelOptions,
+			token: CancellationToken
+		): ProviderResult<T[]>;
 		provideLanguageModelChatResponse(
 			model: T,
 			messages: readonly LanguageModelChatRequestMessage[],

@@ -25,6 +25,8 @@ import {
 	collectToolResultText,
 	convertToolsToOpenAI,
 	mapRole,
+	thinkingLevelToEffort,
+	thinkingLevelToBudget,
 } from "../utils";
 
 import { CommonApi } from "../commonApi";
@@ -153,6 +155,10 @@ export class OpenaiApi extends CommonApi<OpenAIChatMessage, Record<string, unkno
 		um: HFModelItem | undefined,
 		options?: ProvideLanguageModelChatResponseOptions
 	): Record<string, unknown> {
+		// Extract thinking level chosen by the user in the model picker (v5 API)
+		const modelConfig = options?.modelConfiguration as Record<string, unknown> | undefined;
+		const thinkingLevel = typeof modelConfig?.thinking_level === "string" ? modelConfig.thinking_level : undefined;
+
 		// temperature
 		if (um?.temperature !== undefined && um.temperature !== null) {
 			rb.temperature = um.temperature;
@@ -171,34 +177,42 @@ export class OpenaiApi extends CommonApi<OpenAIChatMessage, Record<string, unkno
 			rb.max_tokens = um.max_tokens;
 		}
 
-		// OpenAI reasoning configuration
+		// OpenAI reasoning configuration — thinking_level overrides reasoning_effort when set
 		if (um?.reasoning_effort !== undefined) {
-			rb.reasoning_effort = um.reasoning_effort;
+			rb.reasoning_effort = thinkingLevel !== undefined ? thinkingLevelToEffort(thinkingLevel) : um.reasoning_effort;
 		}
 
-		// enable_thinking (non-OpenRouter only)
-		const enableThinking = um?.enable_thinking;
-		if (enableThinking !== undefined) {
-			rb.enable_thinking = enableThinking;
-
-			if (um?.thinking_budget !== undefined) {
+		// enable_thinking (non-OpenRouter only) — thinking_level overrides when set
+		if (thinkingLevel !== undefined && um?.enable_thinking !== undefined) {
+			const enable = thinkingLevel !== "none";
+			rb.enable_thinking = enable;
+			if (enable) {
+				rb.thinking_budget = thinkingLevelToBudget(thinkingLevel);
+			}
+		} else if (um?.enable_thinking !== undefined) {
+			rb.enable_thinking = um.enable_thinking;
+			if (um.enable_thinking && um.thinking_budget !== undefined) {
 				rb.thinking_budget = um.thinking_budget;
 			}
 		}
 
-		// thinking (Zai provider)
+		// thinking (Zai provider) — thinking_level overrides type when set
 		if (um?.thinking?.type !== undefined) {
-			rb.thinking = {
-				type: um.thinking.type,
-			};
+			let effectiveType: string;
+			if (thinkingLevel !== undefined) {
+				effectiveType = thinkingLevel === "none" ? "disabled" : "enabled";
+			} else {
+				effectiveType = um.thinking.type;
+			}
+			rb.thinking = { type: effectiveType };
 		}
 
-		// OpenRouter reasoning configuration
+		// OpenRouter reasoning configuration — thinking_level overrides effort when set
 		if (um?.reasoning !== undefined) {
 			const reasoningConfig: ReasoningConfig = um.reasoning as ReasoningConfig;
 			if (reasoningConfig.enabled !== false) {
 				const reasoningObj: Record<string, unknown> = {};
-				const effort = reasoningConfig.effort;
+				const effort = thinkingLevel !== undefined ? thinkingLevelToEffort(thinkingLevel) : reasoningConfig.effort;
 				const maxTokensReasoning = reasoningConfig.max_tokens || 2000; // Default 2000 as per docs
 				if (effort && effort !== "auto") {
 					reasoningObj.effort = effort;

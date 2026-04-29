@@ -418,3 +418,61 @@ export async function executeWithRetry<T>(fn: () => Promise<T>, retryConfig: Ret
 	});
 	throw lastError || new Error("Retry failed");
 }
+
+/**
+ * Thinking level values exposed in the model picker.
+ * "none" disables thinking; "low"–"max" enable it with increasing budget/effort.
+ */
+export type ThinkingLevel = "none" | "low" | "medium" | "high" | "max";
+
+/** Maps a thinking level to an effort string for reasoning_effort-style APIs. */
+const THINKING_LEVEL_TO_EFFORT: Record<ThinkingLevel, string> = {
+	none: "low",
+	low: "low",
+	medium: "medium",
+	high: "high",
+	max: "max",
+};
+
+/** Maps a thinking level to a token budget for thinking_budget-style APIs. */
+const THINKING_LEVEL_TO_BUDGET: Record<ThinkingLevel, number> = {
+	none: 0,
+	low: 1024,
+	medium: 8192,
+	high: 32768,
+	max: 131072,
+};
+
+/**
+ * Convert a thinking level string to a reasoning effort string.
+ * Falls back to the raw level value if not recognized.
+ */
+export function thinkingLevelToEffort(level: string): string {
+	return THINKING_LEVEL_TO_EFFORT[level as ThinkingLevel] ?? level;
+}
+
+/**
+ * Convert a thinking level string to a token budget number.
+ */
+export function thinkingLevelToBudget(level: string): number {
+	return THINKING_LEVEL_TO_BUDGET[level as ThinkingLevel] ?? 8192;
+}
+
+/**
+ * Derive the closest ThinkingLevel label from a token budget number.
+ */
+export function budgetToThinkingLevel(budget: number | undefined): ThinkingLevel {
+	if (budget === undefined || budget <= 0) {
+		return "none";
+	}
+	if (budget <= 2048) {
+		return "low";
+	}
+	if (budget <= 16384) {
+		return "medium";
+	}
+	if (budget <= 65536) {
+		return "high";
+	}
+	return "max";
+}
