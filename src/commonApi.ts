@@ -192,8 +192,9 @@ export abstract class CommonApi<TMessage, TRequestBody> {
 
 		const startLine = typeof parameters.startLine === "number" ? parameters.startLine : 1;
 		const endLine = typeof parameters.endLine === "number" ? parameters.endLine : startLine;
-		if (endLine < startLine + defaultLines) {
-			return { ...parameters, endLine: startLine + defaultLines };
+		const desiredEndLine = startLine + defaultLines - 1;
+		if (endLine < desiredEndLine) {
+			return { ...parameters, endLine: desiredEndLine };
 		}
 		return parameters;
 	}

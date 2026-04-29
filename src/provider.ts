@@ -13,7 +13,16 @@ import type { HFModelItem } from "./types";
 
 import type { OllamaRequestBody } from "./ollama/ollamaTypes";
 
-import { parseModelId, createRetryConfig, executeWithRetry, normalizeUserModels, parseRetryAfterMs, RequestRateLimiter } from "./utils";
+import {
+	parseModelId,
+	createRetryConfig,
+	executeWithRetry,
+	normalizeUserModels,
+	parseRetryAfterMs,
+	RequestRateLimiter,
+	sleep,
+	fetchWithCancellation,
+} from "./utils";
 
 import { prepareLanguageModelChatInformation } from "./provideModel";
 import { countMessageTokens } from "./provideToken";
@@ -153,7 +162,12 @@ export class HuggingFaceChatModelProvider implements LanguageModelChatProvider {
 			};
 
 			// Update Token Usage
-			updateContextStatusBar(messages, options.tools, model, this.statusBarItem, modelConfig);
+			void updateContextStatusBar(messages, options.tools, model, this.statusBarItem, modelConfig).catch((error) => {
+				logger.warn("token.status.update.failed", {
+					modelId: model.id,
+					error: error instanceof Error ? error.message : String(error),
+				});
+			});
 
 			// Apply delay between consecutive requests
 			const modelDelay = um?.delay;
@@ -169,12 +183,7 @@ export class HuggingFaceChatModelProvider implements LanguageModelChatProvider {
 						elapsed,
 						remainingDelay,
 					});
-					await new Promise<void>((resolve) => {
-						const timeout = setTimeout(() => {
-							clearTimeout(timeout);
-							resolve();
-						}, remainingDelay);
-					});
+					await sleep(remainingDelay, token);
 				}
 			}
 
@@ -191,7 +200,7 @@ export class HuggingFaceChatModelProvider implements LanguageModelChatProvider {
 				}
 				const rateLimiter = this._rateLimiters.get(rateLimiterKey)!;
 				logger.debug("rateLimiter.check", { modelId: model.id, maxRpm });
-				await rateLimiter.throttle(maxRpm);
+				await rateLimiter.throttle(maxRpm, token);
 			}
 
 			// Get API key for the model's provider
@@ -242,7 +251,7 @@ export class HuggingFaceChatModelProvider implements LanguageModelChatProvider {
 					requestBody: ollamaRequestBody,
 				});
 				const response = await executeWithRetry(async () => {
-					const res = await fetch(url, {
+					const res = await fetchWithCancellation(url, {
 						method: "POST",
 						headers: requestHeaders,
 						body: JSON.stringify(ollamaRequestBody),
@@ -262,7 +271,7 @@ export class HuggingFaceChatModelProvider implements LanguageModelChatProvider {
 					}
 
 					return res;
-				}, retryConfig);
+				}, retryConfig, token);
 
 				if (!response.body) {
 					throw new Error("No response body from Ollama API");
@@ -290,7 +299,7 @@ export class HuggingFaceChatModelProvider implements LanguageModelChatProvider {
 					: `${normalizedBaseUrl}/v1/messages`;
 				logger.debug("request.body", { url, requestBody });
 				const response = await executeWithRetry(async () => {
-					const res = await fetch(url, {
+					const res = await fetchWithCancellation(url, {
 						method: "POST",
 						headers: requestHeaders,
 						body: JSON.stringify(requestBody),
@@ -310,7 +319,7 @@ export class HuggingFaceChatModelProvider implements LanguageModelChatProvider {
 					}
 
 					return res;
-				}, retryConfig);
+				}, retryConfig, token);
 
 				if (!response.body) {
 					throw new Error("No response body from Anthropic API");
@@ -372,7 +381,7 @@ export class HuggingFaceChatModelProvider implements LanguageModelChatProvider {
 
 				const sendRequest = async (body: Record<string, unknown>) =>
 					await executeWithRetry(async () => {
-						const res = await fetch(url, {
+						const res = await fetchWithCancellation(url, {
 							method: "POST",
 							headers: requestHeaders,
 							body: JSON.stringify(body),
@@ -393,7 +402,7 @@ export class HuggingFaceChatModelProvider implements LanguageModelChatProvider {
 						}
 
 						return res;
-					}, retryConfig);
+					}, retryConfig, token);
 
 				let response: Response;
 				try {
@@ -470,7 +479,7 @@ export class HuggingFaceChatModelProvider implements LanguageModelChatProvider {
 				}
 
 				const response = await executeWithRetry(async () => {
-					const res = await fetch(url, {
+					const res = await fetchWithCancellation(url, {
 						method: "POST",
 						headers: requestHeaders,
 						body: JSON.stringify(requestBody),
@@ -490,7 +499,7 @@ export class HuggingFaceChatModelProvider implements LanguageModelChatProvider {
 					}
 
 					return res;
-				}, retryConfig);
+				}, retryConfig, token);
 
 				if (!response.body) {
 					throw new Error("No response body from Gemini API");
@@ -514,7 +523,7 @@ export class HuggingFaceChatModelProvider implements LanguageModelChatProvider {
 				const url = `${BASE_URL.replace(/\/+$/, "")}/chat/completions`;
 				logger.debug("request.body", { url, requestBody });
 				const response = await executeWithRetry(async () => {
-					const res = await fetch(url, {
+					const res = await fetchWithCancellation(url, {
 						method: "POST",
 						headers: requestHeaders,
 						body: JSON.stringify(requestBody),
@@ -534,7 +543,7 @@ export class HuggingFaceChatModelProvider implements LanguageModelChatProvider {
 					}
 
 					return res;
-				}, retryConfig);
+				}, retryConfig, token);
 
 				if (!response.body) {
 					throw new Error("No response body from OAI Compatible API");

@@ -61,7 +61,7 @@ export async function updateContextStatusBar(
 	modelConfig: { includeReasoningInRequest: boolean }
 ): Promise<void> {
 	// Calculate tokens for all messages in parallel
-	const tokenCountPromises = messages.map((message) => countMessageTokens(message, modelConfig));
+	const tokenCountPromises = messages.map((message) => countMessageTokens(message, modelConfig).catch(() => 0));
 
 	const tokenCounts = await Promise.all(tokenCountPromises);
 	const messagesTokens = tokenCounts.reduce((sum, count) => sum + count, 0);
@@ -74,7 +74,7 @@ export async function updateContextStatusBar(
 
 	// Total tokens: messages + tool definitions + reserved output
 	const totalTokenCount = messagesTokens + toolTokens;
-	const maxTokens = model.maxInputTokens + model.maxOutputTokens;
+	const maxTokens = Math.max(1, model.maxInputTokens + model.maxOutputTokens);
 
 	// Create visual progress bar with single progressive block
 	const progressBar = createProgressBar(totalTokenCount, maxTokens);

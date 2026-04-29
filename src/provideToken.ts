@@ -65,10 +65,15 @@ export async function countMessageTokens(
 }
 
 export async function textTokenLength(text: string): Promise<number> {
-	try {
-		return tokenizerManager.countTokens(text);
-	} catch (e) {
+	if (!text) {
 		return 0;
+	}
+	try {
+		return await tokenizerManager.countTokens(text);
+	} catch (e) {
+		// Token counting is part of context budgeting. Returning 0 disables useful
+		// context pressure signals, so fall back to a conservative character estimate.
+		return Math.max(1, Math.ceil(text.length / 4));
 	}
 }
 

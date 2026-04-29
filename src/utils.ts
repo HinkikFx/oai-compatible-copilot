@@ -19,6 +19,49 @@ const BOUNDARY_BUFFER_MS = 1;
  * Accepts both delay-seconds (integer) and HTTP-date formats.
  * Returns undefined when the header value cannot be parsed.
  */
+function throwIfCancellationRequested(token?: vscode.CancellationToken): void {
+	if (token?.isCancellationRequested) {
+		throw new vscode.CancellationError();
+	}
+}
+
+export function sleep(ms: number, token?: vscode.CancellationToken): Promise<void> {
+	throwIfCancellationRequested(token);
+	if (ms <= 0) {
+		return Promise.resolve();
+	}
+	return new Promise<void>((resolve, reject) => {
+		let disposable: vscode.Disposable | undefined;
+		const timeout = setTimeout(() => {
+			disposable?.dispose();
+			resolve();
+		}, ms);
+		disposable = token?.onCancellationRequested(() => {
+			clearTimeout(timeout);
+			disposable?.dispose();
+			reject(new vscode.CancellationError());
+		});
+	});
+}
+
+export async function fetchWithCancellation(
+	input: RequestInfo | URL,
+	init: RequestInit,
+	token?: vscode.CancellationToken
+): Promise<Response> {
+	throwIfCancellationRequested(token);
+	if (!token) {
+		return fetch(input, init);
+	}
+	const controller = new AbortController();
+	const disposable = token.onCancellationRequested(() => controller.abort());
+	try {
+		return await fetch(input, { ...init, signal: controller.signal });
+	} finally {
+		disposable.dispose();
+	}
+}
+
 export function parseRetryAfterMs(retryAfterHeader: string): number | undefined {
 	const trimmed = retryAfterHeader.trim();
 	if (!trimmed) {
@@ -53,7 +96,7 @@ export class RequestRateLimiter {
 	 * Wait until sending the next request stays within the given RPM limit.
 	 * @param maxRequestsPerMinute Maximum number of requests allowed per 60-second window.
 	 */
-	async throttle(maxRequestsPerMinute: number): Promise<void> {
+	async throttle(maxRequestsPerMinute: number, token?: vscode.CancellationToken): Promise<void> {
 		if (maxRequestsPerMinute <= 0) {
 			return;
 		}
@@ -61,6 +104,7 @@ export class RequestRateLimiter {
 		const windowMs = RATE_LIMIT_WINDOW_MS;
 
 		while (true) {
+			throwIfCancellationRequested(token);
 			const now = Date.now();
 			// Evict timestamps older than the sliding window
 			this._timestamps = this._timestamps.filter((t) => t > now - windowMs);
@@ -79,7 +123,7 @@ export class RequestRateLimiter {
 				currentCount: this._timestamps.length,
 				waitMs,
 			});
-			await new Promise<void>((resolve) => setTimeout(resolve, waitMs));
+			await sleep(waitMs, token);
 		}
 	}
 }
@@ -356,7 +400,12 @@ export function createRetryConfig(): RetryConfig {
  * @param token Cancellation token
  * @returns Result of the function execution
  */
-export async function executeWithRetry<T>(fn: () => Promise<T>, retryConfig: RetryConfig): Promise<T> {
+export async function executeWithRetry<T>(
+	fn: () => Promise<T>,
+	retryConfig: RetryConfig,
+	token?: vscode.CancellationToken
+): Promise<T> {
+	throwIfCancellationRequested(token);
 	if (!retryConfig.enabled) {
 		return await fn();
 	}
@@ -370,6 +419,7 @@ export async function executeWithRetry<T>(fn: () => Promise<T>, retryConfig: Ret
 	let lastError: Error | undefined;
 
 	for (let attempt = 0; attempt < maxAttempts; attempt++) {
+		throwIfCancellationRequested(token);
 		try {
 			return await fn();
 		} catch (error) {
@@ -407,7 +457,7 @@ export async function executeWithRetry<T>(fn: () => Promise<T>, retryConfig: Ret
 			);
 
 			// Wait for the calculated interval before retrying
-			await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+			await sleep(delayMs, token);
 		}
 	}
 
