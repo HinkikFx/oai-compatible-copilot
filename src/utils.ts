@@ -465,13 +465,14 @@ export function budgetToThinkingLevel(budget: number | undefined): ThinkingLevel
 	if (budget === undefined || budget <= 0) {
 		return "none";
 	}
-	if (budget <= 2048) {
+	// Midpoints between THINKING_LEVEL_TO_BUDGET entries: low=1024, medium=8192, high=32768, max=131072
+	if (budget <= 4608) {
 		return "low";
 	}
-	if (budget <= 16384) {
+	if (budget <= 20480) {
 		return "medium";
 	}
-	if (budget <= 65536) {
+	if (budget <= 81920) {
 		return "high";
 	}
 	return "max";

@@ -2,7 +2,7 @@ import * as vscode from "vscode";
 import { CancellationToken, LanguageModelChatInformation, LanguageModelConfigurationSchema } from "vscode";
 
 import type { HFApiMode, HFModelItem, HFModelsResponse, ReasoningConfig } from "./types";
-import { normalizeUserModels, budgetToThinkingLevel } from "./utils";
+import { normalizeUserModels, budgetToThinkingLevel, type ThinkingLevel } from "./utils";
 import { VersionManager } from "./versionManager";
 import { fetchGeminiModels } from "./gemini/geminiApi";
 import { fetchOllamaModels } from "./ollama/ollamaApi";
@@ -35,7 +35,15 @@ function buildThinkingLevelSchema(m: HFModelItem): LanguageModelConfigurationSch
 
 	// QwQ-style: enable_thinking + optional thinking_budget
 	if (m.enable_thinking !== undefined) {
-		const defaultLevel = m.enable_thinking === false ? "none" : budgetToThinkingLevel(m.thinking_budget);
+		let defaultLevel: ThinkingLevel;
+		if (m.enable_thinking === false) {
+			defaultLevel = "none";
+		} else if (m.thinking_budget !== undefined) {
+			defaultLevel = budgetToThinkingLevel(m.thinking_budget);
+		} else {
+			// thinking is enabled but no budget is specified — default to medium
+			defaultLevel = "medium";
+		}
 		return {
 			properties: {
 				thinking_level: {
@@ -70,7 +78,10 @@ function buildThinkingLevelSchema(m: HFModelItem): LanguageModelConfigurationSch
 	if (m.reasoning !== undefined) {
 		const reasoningConfig = m.reasoning as ReasoningConfig;
 		const effort = reasoningConfig.effort ?? "medium";
-		const defaultLevel = effort === "auto" ? "medium" : effort;
+		const knownLevels: ThinkingLevel[] = ["low", "medium", "high", "max"];
+		const defaultLevel: ThinkingLevel = knownLevels.includes(effort as ThinkingLevel)
+			? (effort as ThinkingLevel)
+			: "medium";
 		return {
 			properties: {
 				thinking_level: {
