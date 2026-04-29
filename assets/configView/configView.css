@@ -378,3 +378,42 @@ button:not(.secondary):not(.danger) {
 	line-height: 1.4;
 	padding: 4px 0;
 }
+
+
+.usage-summary {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+	gap: 10px;
+	margin: 12px 0;
+}
+.usage-card {
+	border: 1px solid var(--vscode-editorWidget-border);
+	border-radius: 10px;
+	padding: 10px 12px;
+	background: var(--vscode-editor-background);
+	box-shadow: 0 4px 10px rgba(0, 0, 0, 0.06);
+}
+.usage-card .usage-label {
+	display: block;
+	font-size: 11px;
+	color: var(--vscode-descriptionForeground);
+	margin-bottom: 4px;
+}
+.usage-card strong {
+	font-size: 17px;
+}
+.usage-source {
+	display: inline-flex;
+	align-items: center;
+	padding: 2px 8px;
+	border-radius: 999px;
+	border: 1px solid var(--vscode-editorWidget-border);
+	font-size: 11px;
+	text-transform: uppercase;
+}
+.usage-source.api {
+	color: var(--vscode-testing-iconPassed);
+}
+.usage-source.estimate {
+	color: var(--vscode-testing-iconQueued);
+}

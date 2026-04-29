@@ -7,7 +7,7 @@ import {
 	Progress,
 } from "vscode";
 
-import type { HFModelItem } from "../types";
+import type { ApiUsage, HFModelItem } from "../types";
 
 import type {
 	AnthropicMessage,
@@ -26,6 +26,24 @@ import { logger } from "../logger";
 export class AnthropicApi extends CommonApi<AnthropicMessage, AnthropicRequestBody> {
 	constructor(modelId: string) {
 		super(modelId);
+	}
+
+	private mergeUsage(current: ApiUsage | undefined, usage: unknown): ApiUsage | undefined {
+		if (!usage || typeof usage !== "object") {
+			return current;
+		}
+		const u = usage as Record<string, unknown>;
+		return {
+			promptTokens: typeof u.input_tokens === "number" ? u.input_tokens : current?.promptTokens,
+			completionTokens: typeof u.output_tokens === "number" ? u.output_tokens : current?.completionTokens,
+			totalTokens:
+				typeof u.input_tokens === "number" && typeof u.output_tokens === "number"
+					? u.input_tokens + u.output_tokens
+					: current?.totalTokens,
+			cachedPromptTokens:
+				typeof u.cache_read_input_tokens === "number" ? u.cache_read_input_tokens : current?.cachedPromptTokens,
+			source: "api",
+		};
 	}
 
 	/**
@@ -223,13 +241,14 @@ export class AnthropicApi extends CommonApi<AnthropicMessage, AnthropicRequestBo
 		responseBody: ReadableStream<Uint8Array>,
 		progress: Progress<LanguageModelResponsePart2>,
 		token: CancellationToken
-	): Promise<void> {
+	): Promise<ApiUsage | undefined> {
 		const modelId = this._modelId;
 		logger.debug("anthropic.stream.start", { modelId });
 
 		const reader = responseBody.getReader();
 		const decoder = new TextDecoder();
 		let buffer = "";
+		let apiUsage: ApiUsage | undefined;
 
 		try {
 			while (true) {
@@ -264,6 +283,7 @@ export class AnthropicApi extends CommonApi<AnthropicMessage, AnthropicRequestBo
 
 					try {
 						const chunk: AnthropicStreamChunk = JSON.parse(data);
+						apiUsage = this.mergeUsage(apiUsage, chunk.message?.usage ?? chunk.usage);
 						await this.processAnthropicChunk(chunk, progress);
 					} catch (e) {
 						console.error("[Anthropic Provider] Failed to parse SSE chunk:", e, "data:", data);
@@ -285,6 +305,7 @@ export class AnthropicApi extends CommonApi<AnthropicMessage, AnthropicRequestBo
 			// If there's an active thinking sequence, end it first
 			this.reportEndThinking(progress);
 		}
+		return apiUsage;
 	}
 
 	/**

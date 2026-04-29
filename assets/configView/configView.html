@@ -290,6 +290,17 @@
 									</div>
 									<input id="modelFamily" type="text" class="model-input" placeholder="e.g., gpt-4, claude-3" />
 								</div>
+
+								<div class="field">
+									<label for="modelInputPricePerMillionTokens">Input Price / 1M Tokens</label>
+									<div class="field-description">Estimated input token price in USD per 1M tokens, used for local Usage cost display.</div>
+									<input id="modelInputPricePerMillionTokens" type="number" class="model-input" min="0" step="0.000001" placeholder="0" />
+								</div>
+								<div class="field">
+									<label for="modelOutputPricePerMillionTokens">Output Price / 1M Tokens</label>
+									<div class="field-description">Estimated output token price in USD per 1M tokens, used for local Usage cost display.</div>
+									<input id="modelOutputPricePerMillionTokens" type="number" class="model-input" min="0" step="0.000001" placeholder="0" />
+								</div>
 								<div class="field">
 									<label for="modelTopK">Top K</label>
 									<div class="field-description">Top-k sampling value (range: [1, Infinity)).</div>
@@ -442,6 +453,47 @@
 						<button id="cancelModel" class="secondary">Cancel</button>
 					</div>
 				</div>
+			</div>
+		</section>
+
+		<section id="usageManagementSection">
+			<div class="section-header">
+				<h2>Usage</h2>
+				<div class="section-actions">
+					<button id="clearUsage" class="secondary">Clear Usage</button>
+					<button id="refreshUsage" class="secondary">Refresh</button>
+				</div>
+			</div>
+			<p class="muted">
+				Per-request token usage for the current VS Code session. Real API usage is preferred when the provider returns it;
+				otherwise local estimates are shown.
+			</p>
+			<div id="usageSummary" class="usage-summary">
+				<div class="usage-card"><span class="usage-label">Total</span><strong id="usageTotalTokens">0</strong></div>
+				<div class="usage-card"><span class="usage-label">Prompt</span><strong id="usagePromptTokens">0</strong></div>
+				<div class="usage-card"><span class="usage-label">Completion</span><strong id="usageCompletionTokens">0</strong></div>
+				<div class="usage-card"><span class="usage-label">Reasoning</span><strong id="usageReasoningTokens">0</strong></div>
+				<div class="usage-card"><span class="usage-label">Estimated Cost</span><strong id="usageCost">$0.0000</strong></div>
+			</div>
+			<div class="table-container">
+				<table id="usageTable">
+					<thead>
+						<tr>
+							<th>Time</th>
+							<th>Model</th>
+							<th>API Mode</th>
+							<th>Source</th>
+							<th>Prompt</th>
+							<th>Completion</th>
+							<th>Reasoning</th>
+							<th>Total</th>
+							<th>Cost</th>
+						</tr>
+					</thead>
+					<tbody id="usageTableBody">
+						<tr><td colspan="9" class="no-data">No usage records</td></tr>
+					</tbody>
+				</table>
 			</div>
 		</section>
 

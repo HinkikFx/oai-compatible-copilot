@@ -3,6 +3,7 @@ import type { HFApiMode, HFModelItem } from "../types";
 import { normalizeUserModels, parseModelId } from "../utils";
 import { fetchModels } from "../provideModel";
 import { VersionManager } from "../versionManager";
+import { usageTracker, type UsageSummary } from "../usageTracker";
 
 interface InitPayload {
 	baseUrl: string;
@@ -19,6 +20,7 @@ interface InitPayload {
 	commitLanguage: string;
 	models: HFModelItem[];
 	providerKeys: Record<string, string>;
+	usage: UsageSummary;
 }
 
 interface ExportConfig {
@@ -81,7 +83,8 @@ type IncomingMessage =
 	| { type: "deleteModel"; modelId: string }
 	| { type: "requestConfirm"; id: string; message: string; action: string }
 	| { type: "exportConfig" }
-	| { type: "importConfig" };
+	| { type: "importConfig" }
+	| { type: "clearUsage" };
 
 type OutgoingMessage =
 	| { type: "init"; payload: InitPayload }
@@ -217,6 +220,10 @@ export class ConfigViewPanel {
 			case "importConfig":
 				await this.importConfig();
 				break;
+			case "clearUsage":
+				usageTracker.clear();
+				await this.sendInit();
+				break;
 			default:
 				break;
 		}
@@ -293,6 +300,7 @@ export class ConfigViewPanel {
 			commitLanguage,
 			models,
 			providerKeys,
+			usage: usageTracker.getSummary(),
 		};
 		this.panel.webview.postMessage({ type: "init", payload });
 	}

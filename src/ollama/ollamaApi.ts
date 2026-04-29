@@ -7,7 +7,7 @@ import {
 	Progress,
 } from "vscode";
 
-import type { HFModelItem } from "../types";
+import type { ApiUsage, HFModelItem } from "../types";
 
 import type { OllamaMessage, OllamaRequestBody, OllamaStreamChunk, OllamaToolCall } from "./ollamaTypes";
 
@@ -19,6 +19,21 @@ import { logger } from "../logger";
 export class OllamaApi extends CommonApi<OllamaMessage, OllamaRequestBody> {
 	constructor(modelId: string) {
 		super(modelId);
+	}
+
+	private parseUsage(chunk: OllamaStreamChunk): ApiUsage | undefined {
+		if (!chunk.done) {
+			return undefined;
+		}
+		const promptTokens = typeof chunk.prompt_eval_count === "number" ? chunk.prompt_eval_count : undefined;
+		const completionTokens = typeof chunk.eval_count === "number" ? chunk.eval_count : undefined;
+		return {
+			promptTokens,
+			completionTokens,
+			totalTokens:
+				promptTokens !== undefined && completionTokens !== undefined ? promptTokens + completionTokens : undefined,
+			source: "api",
+		};
 	}
 
 	/**
@@ -162,13 +177,14 @@ export class OllamaApi extends CommonApi<OllamaMessage, OllamaRequestBody> {
 		responseBody: ReadableStream<Uint8Array>,
 		progress: Progress<LanguageModelResponsePart2>,
 		token: CancellationToken
-	): Promise<void> {
+	): Promise<ApiUsage | undefined> {
 		const modelId = this._modelId;
 		logger.debug("ollama.stream.start", { modelId });
 
 		const reader = responseBody.getReader();
 		const decoder = new TextDecoder();
 		let buffer = "";
+		let apiUsage: ApiUsage | undefined;
 
 		try {
 			while (true) {
@@ -194,6 +210,7 @@ export class OllamaApi extends CommonApi<OllamaMessage, OllamaRequestBody> {
 						const chunk: OllamaStreamChunk = JSON.parse(line);
 						logger.debug("ollama.stream.chunk", { modelId, data: chunk });
 						await this.processOllamaDelta(chunk, progress);
+						apiUsage = this.parseUsage(chunk) ?? apiUsage;
 
 						// Check if this is the final chunk
 						if (chunk.done) {
@@ -220,6 +237,7 @@ export class OllamaApi extends CommonApi<OllamaMessage, OllamaRequestBody> {
 			// End any active thinking sequence
 			this.reportEndThinking(progress);
 		}
+		return apiUsage;
 	}
 
 	/**

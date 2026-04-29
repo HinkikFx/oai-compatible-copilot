@@ -7,7 +7,7 @@ import {
 	Progress,
 } from "vscode";
 
-import type { HFModelItem } from "../types";
+import type { ApiUsage, HFModelItem } from "../types";
 import type { OpenAIToolCall } from "./openaiTypes";
 
 import {
@@ -69,6 +69,27 @@ export type ResponsesInputItem =
 
 export class OpenaiResponsesApi extends CommonApi<ResponsesInputItem, Record<string, unknown>> {
 	private _responseId: string | null = null;
+
+	private parseUsageFromEvent(event: Record<string, unknown>): ApiUsage | undefined {
+		const usage = event.usage ??
+			(event.response && typeof event.response === "object" && !Array.isArray(event.response)
+				? (event.response as Record<string, unknown>).usage
+				: undefined);
+		if (!usage || typeof usage !== "object") {
+			return undefined;
+		}
+		const u = usage as Record<string, unknown>;
+		const inputDetails = u.input_tokens_details as Record<string, unknown> | undefined;
+		const outputDetails = u.output_tokens_details as Record<string, unknown> | undefined;
+		return {
+			promptTokens: typeof u.input_tokens === "number" ? u.input_tokens : undefined,
+			completionTokens: typeof u.output_tokens === "number" ? u.output_tokens : undefined,
+			totalTokens: typeof u.total_tokens === "number" ? u.total_tokens : undefined,
+			reasoningTokens: typeof outputDetails?.reasoning_tokens === "number" ? outputDetails.reasoning_tokens : undefined,
+			cachedPromptTokens: typeof inputDetails?.cached_tokens === "number" ? inputDetails.cached_tokens : undefined,
+			source: "api",
+		};
+	}
 
 	constructor(modelId: string) {
 		super(modelId);
@@ -289,13 +310,14 @@ export class OpenaiResponsesApi extends CommonApi<ResponsesInputItem, Record<str
 		responseBody: ReadableStream<Uint8Array>,
 		progress: Progress<LanguageModelResponsePart2>,
 		token: CancellationToken
-	): Promise<void> {
+	): Promise<ApiUsage | undefined> {
 		this._responseId = null;
 		const modelId = this._modelId;
 		logger.debug("responses.stream.start", { modelId });
 		const reader = responseBody.getReader();
 		const decoder = new TextDecoder();
 		let buffer = "";
+		let apiUsage: ApiUsage | undefined;
 
 		try {
 			while (true) {
@@ -325,6 +347,7 @@ export class OpenaiResponsesApi extends CommonApi<ResponsesInputItem, Record<str
 
 					try {
 						const parsed = JSON.parse(data) as Record<string, unknown>;
+						apiUsage = this.parseUsageFromEvent(parsed) ?? apiUsage;
 						await this.processEvent(parsed, progress);
 					} catch (e) {
 						console.error("[OpenAI-Responses Provider] Failed to parse SSE chunk:", e, "data:", data);
@@ -345,6 +368,7 @@ export class OpenaiResponsesApi extends CommonApi<ResponsesInputItem, Record<str
 			reader.releaseLock();
 			this.reportEndThinking(progress);
 		}
+		return apiUsage;
 	}
 
 	private coerceText(value: unknown): string {

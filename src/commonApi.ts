@@ -8,7 +8,7 @@ import {
 	Progress,
 	CancellationToken,
 } from "vscode";
-import { HFModelItem } from "./types";
+import { ApiUsage, HFModelItem } from "./types";
 import { tryParseJSONObject } from "./utils";
 import { VersionManager } from "./versionManager";
 
@@ -90,7 +90,7 @@ export abstract class CommonApi<TMessage, TRequestBody> {
 		responseBody: ReadableStream<Uint8Array>,
 		progress: Progress<LanguageModelResponsePart2>,
 		token: CancellationToken
-	): Promise<void>;
+	): Promise<ApiUsage | undefined>;
 
 	/**
 	 * Create a message stream for the specific API.

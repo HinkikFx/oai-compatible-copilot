@@ -29,6 +29,10 @@
 	"engines": {
 		"vscode": "^1.104.0"
 	},
+	"enabledApiProposals": [
+	    "chatProvider",
+	    "languageModelThinkingPart"
+	],
 	"categories": [
 		"AI",
 		"Chat"
@@ -46,11 +50,11 @@
 	"license": "MIT",
 	"contributes": {
 		"languageModelChatProviders": [
-			{
-				"vendor": "oaicopilot",
-				"displayName": "OAI Compatible",
-				"managementCommand": "oaicopilot.setApikey"
-			}
+		    {
+		        "vendor": "oaicopilot",
+		        "displayName": "OAI Compatible",
+		        "configuration": "oaicopilot.openConfig"
+		    }
 		],
 		"commands": [
 			{
@@ -175,49 +179,6 @@
 								"default": false,
 								"description": "Model support vision. Default is false."
 							},
-							"editTools": {
-                            	"type": "array",
-                                "items": {
-                                    "type": "string",
-                                    "enum": [
-                                        "find-replace",
-                                        "multi-find-replace",
-                                        "apply-patch",
-                                        "code-rewrite"
-                                    ]
-                                },
-                                "default": [
-                                    "find-replace",
-                                    "multi-find-replace",
-                                    "apply-patch",
-                                    "code-rewrite"
-                                ],
-                                "description": "Preferred VS Code edit tools for Copilot edit and agent workflows. Used as a capability hint; VS Code may still choose another edit strategy."
-                            },
-                            "inputPricePerMillionTokens": {
-                                "type": "number",
-                                "default": 0,
-                                "minimum": 0,
-                                "description": "Estimated input token price in USD per 1M tokens. Used only for local agent workflow cost display."
-                            },
-                            "outputPricePerMillionTokens": {
-                                "type": "number",
-                                "default": 0,
-                                "minimum": 0,
-                                "description": "Estimated output token price in USD per 1M tokens. Used only for local agent workflow cost display."
-                            },
-                            "input_price_per_million_tokens": {
-                                "type": "number",
-                                "default": 0,
-                                "minimum": 0,
-                                "description": "Snake_case alias for inputPricePerMillionTokens. Estimated input token price in USD per 1M tokens."
-                            },
-                            "output_price_per_million_tokens": {
-                                "type": "number",
-                                "default": 0,
-                                "minimum": 0,
-                                "description": "Snake_case alias for outputPricePerMillionTokens. Estimated output token price in USD per 1M tokens."
-                            },
 							"max_tokens": {
 								"type": "number",
 								"default": 4096,
@@ -402,6 +363,49 @@
 								"default": 0,
 								"minimum": 0,
 								"description": "Model-specific maximum requests per minute. Requests exceeding this limit are automatically delayed instead of receiving a 429 error. Set to 0 to disable. Overrides the global oaicopilot.maxRequestsPerMinute setting."
+							},
+							"editTools": {
+								"type": "array",
+								"items": {
+									"type": "string",
+									"enum": [
+										"find-replace",
+										"multi-find-replace",
+										"apply-patch",
+										"code-rewrite"
+									]
+								},
+								"default": [
+									"find-replace",
+									"multi-find-replace",
+									"apply-patch",
+									"code-rewrite"
+								],
+								"description": "Preferred VS Code edit tools for Copilot edit and agent workflows. Used as a capability hint; VS Code may still choose another edit strategy."
+							},
+							"inputPricePerMillionTokens": {
+								"type": "number",
+								"default": 0,
+								"minimum": 0,
+								"description": "Estimated input token price in USD per 1M tokens. Used only for local agent workflow cost display."
+							},
+							"outputPricePerMillionTokens": {
+								"type": "number",
+								"default": 0,
+								"minimum": 0,
+								"description": "Estimated output token price in USD per 1M tokens. Used only for local agent workflow cost display."
+							},
+							"input_price_per_million_tokens": {
+								"type": "number",
+								"default": 0,
+								"minimum": 0,
+								"description": "Snake_case alias for inputPricePerMillionTokens. Estimated input token price in USD per 1M tokens."
+							},
+							"output_price_per_million_tokens": {
+								"type": "number",
+								"default": 0,
+								"minimum": 0,
+								"description": "Snake_case alias for outputPricePerMillionTokens. Estimated output token price in USD per 1M tokens."
 							}
 						},
 						"required": [
@@ -528,15 +532,15 @@
 	"devDependencies": {
 		"@eslint/js": "^9.13.0",
 		"@stylistic/eslint-plugin": "^2.9.0",
-		"@types/node": "^22",
 		"@types/mocha": "^10.0.6",
-		"@vscode/dts": "^0.4.1",
+		"@types/node": "^22",
 		"@types/vscode": "^1.104.0",
+		"@vscode/dts": "^0.4.1",
 		"@vscode/test-cli": "^0.0.11",
 		"@vscode/test-electron": "^2.5.2",
 		"eslint": "^9.13.0",
 		"prettier": "^3.1.0",
-		"typescript": "^5.9.2",
+		"typescript": "^5.9.3",
 		"typescript-eslint": "^8.39.0"
 	}
 }

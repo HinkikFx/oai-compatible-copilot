@@ -7,7 +7,7 @@ import {
 	Progress,
 } from "vscode";
 
-import type { HFModelItem } from "../types";
+import type { ApiUsage, HFModelItem } from "../types";
 import type { OpenAIFunctionToolDef } from "../openai/openaiTypes";
 
 import { CommonApi } from "../commonApi";
@@ -487,6 +487,30 @@ function openaiToolChoiceToGeminiToolConfig(toolChoice: unknown): GeminiToolConf
 }
 
 export class GeminiApi extends CommonApi<GeminiChatMessage, GeminiGenerateContentRequest> {
+	private parseUsage(value: unknown): ApiUsage | undefined {
+		if (!value || typeof value !== "object") {
+			return undefined;
+		}
+		const usage = value as Record<string, unknown>;
+		const promptTokens = typeof usage.promptTokenCount === "number" ? usage.promptTokenCount : undefined;
+		const candidateTokens = typeof usage.candidatesTokenCount === "number" ? usage.candidatesTokenCount : undefined;
+		const totalTokens = typeof usage.totalTokenCount === "number" ? usage.totalTokenCount : undefined;
+		const reasoningTokens = typeof usage.thoughtsTokenCount === "number" ? usage.thoughtsTokenCount : undefined;
+		// Gemini/Vertex variants differ on whether candidatesTokenCount already includes thoughtsTokenCount.
+		const completionTokens =
+			totalTokens !== undefined && promptTokens !== undefined
+				? Math.max(0, totalTokens - promptTokens)
+				: candidateTokens;
+		return {
+			promptTokens,
+			completionTokens,
+			totalTokens,
+			reasoningTokens,
+			cachedPromptTokens: typeof usage.cachedContentTokenCount === "number" ? usage.cachedContentTokenCount : undefined,
+			source: "api",
+		};
+	}
+
 	constructor(
 		modelId: string,
 		private readonly toolCallMetaByCallId?: Map<string, GeminiToolCallMeta>
@@ -764,12 +788,13 @@ export class GeminiApi extends CommonApi<GeminiChatMessage, GeminiGenerateConten
 		responseBody: ReadableStream<Uint8Array>,
 		progress: Progress<LanguageModelResponsePart2>,
 		token: CancellationToken
-	): Promise<void> {
+	): Promise<ApiUsage | undefined> {
 		const modelId = this._modelId;
 		logger.debug("gemini.stream.start", { modelId });
 		const reader = responseBody.getReader();
 		const decoder = new TextDecoder();
 		let buffer = "";
+		let apiUsage: ApiUsage | undefined;
 
 		let textSoFar = "";
 		const toolCallKeyToId = new Map<string, string>();
@@ -817,6 +842,7 @@ export class GeminiApi extends CommonApi<GeminiChatMessage, GeminiGenerateConten
 					if (!payload) {
 						continue;
 					}
+					apiUsage = this.parseUsage(payload.usageMetadata) ?? apiUsage;
 
 					const candidates = Array.isArray(payload.candidates) ? payload.candidates : [];
 					const cand = candidates.length > 0 ? candidates[0] : null;
@@ -1005,6 +1031,7 @@ export class GeminiApi extends CommonApi<GeminiChatMessage, GeminiGenerateConten
 			reader.releaseLock();
 			this.reportEndThinking(progress);
 		}
+		return apiUsage;
 	}
 
 	async *createMessage(

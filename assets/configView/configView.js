@@ -1,4 +1,5 @@
 const vscode = acquireVsCodeApi();
+globalThis.__oaicopilotVsCodeApi = vscode;
 const state = {
 	baseUrl: "",
 	apiKey: "",
@@ -8,6 +9,7 @@ const state = {
 	models: [],
 	providerKeys: {},
 	providerInfo: {},
+	usage: { records: [], totals: {} },
 };
 
 // Store the action to be performed after confirmation
@@ -37,6 +39,8 @@ const modelDisplayNameInput = document.getElementById("modelDisplayName");
 const modelConfigIdInput = document.getElementById("modelConfigId");
 const modelBaseUrlInput = document.getElementById("modelBaseUrl");
 const modelFamilyInput = document.getElementById("modelFamily");
+const modelInputPricePerMillionTokensInput = document.getElementById("modelInputPricePerMillionTokens");
+const modelOutputPricePerMillionTokensInput = document.getElementById("modelOutputPricePerMillionTokens");
 const modelContextLengthInput = document.getElementById("modelContextLength");
 const modelMaxTokensInput = document.getElementById("modelMaxTokens");
 const modelVisionInput = document.getElementById("modelVision");
@@ -70,6 +74,14 @@ const advancedSettingsContent = document.getElementById("advancedSettingsContent
 
 // Error message element
 const modelErrorElement = document.getElementById("modelError");
+// Usage elements
+const usageTableBody = document.getElementById("usageTableBody");
+const usageTotalTokens = document.getElementById("usageTotalTokens");
+const usagePromptTokens = document.getElementById("usagePromptTokens");
+const usageCompletionTokens = document.getElementById("usageCompletionTokens");
+const usageReasoningTokens = document.getElementById("usageReasoningTokens");
+const usageCost = document.getElementById("usageCost");
+
 
 // Dropdown elements
 const dropdownContent = modelIdDropdown.querySelector(".dropdown-content");
@@ -123,6 +135,10 @@ document.getElementById("importConfig").addEventListener("click", () => {
 document.getElementById("refreshGlobalConfig").addEventListener("click", handleRefresh);
 document.getElementById("refreshProviders").addEventListener("click", handleRefresh);
 document.getElementById("refreshModels").addEventListener("click", handleRefresh);
+document.getElementById("refreshUsage").addEventListener("click", handleRefresh);
+document.getElementById("clearUsage").addEventListener("click", () => {
+	vscode.postMessage({ type: "clearUsage" });
+});
 
 // Add Provider button event listener
 document.getElementById("addProvider").addEventListener("click", () => {
@@ -272,7 +288,7 @@ window.addEventListener("message", (event) => {
 
 	switch (message.type) {
 		case "init":
-			const { baseUrl, apiKey, delay, readFileLines, retry, commitModel, models, providerKeys, commitLanguage } =
+			const { baseUrl, apiKey, delay, readFileLines, retry, commitModel, models, providerKeys, commitLanguage, usage } =
 				message.payload;
 			state.baseUrl = baseUrl;
 			state.apiKey = apiKey;
@@ -287,6 +303,7 @@ window.addEventListener("message", (event) => {
 			state.models = models || [];
 			state.commitModel = commitModel || "";
 			state.providerKeys = providerKeys || {};
+			state.usage = usage || { records: [], totals: {} };
 
 			// Update base configuration
 			baseUrlInput.value = baseUrl || "";
@@ -306,6 +323,7 @@ window.addEventListener("message", (event) => {
 			// Render provider and model management
 			renderProviders();
 			renderModels();
+			renderUsage();
 			break;
 		case "modelsFetched":
 			// Handle the response from fetchModels
@@ -333,6 +351,44 @@ window.addEventListener("message", (event) => {
 			break;
 	}
 });
+
+function formatUsageNumber(value) {
+	return typeof value === "number" && Number.isFinite(value) ? value.toLocaleString() : "0";
+}
+function formatUsageCost(value) {
+	return typeof value === "number" && Number.isFinite(value) ? `$${value.toFixed(4)}` : "$0.0000";
+}
+function renderUsage() {
+	const usage = state.usage || { records: [], totals: {} };
+	const totals = usage.totals || {};
+	usageTotalTokens.textContent = formatUsageNumber(totals.totalTokens);
+	usagePromptTokens.textContent = formatUsageNumber(totals.promptTokens);
+	usageCompletionTokens.textContent = formatUsageNumber(totals.completionTokens);
+	usageReasoningTokens.textContent = formatUsageNumber(totals.reasoningTokens);
+	usageCost.textContent = formatUsageCost(totals.costUsd);
+	const records = Array.isArray(usage.records) ? usage.records : [];
+	if (!records.length) {
+		usageTableBody.innerHTML = '<tr><td colspan="9" class="no-data">No usage records</td></tr>';
+		return;
+	}
+	usageTableBody.innerHTML = records
+		.map((record) => {
+			const time = record.timestamp ? new Date(record.timestamp).toLocaleString() : "";
+			return `
+			<tr>
+				<td>${time}</td>
+				<td>${record.modelId || ""}</td>
+				<td>${record.apiMode || ""}</td>
+				<td><span class="usage-source ${record.usageSource === "api" ? "api" : "estimate"}">${record.usageSource || "estimate"}</span></td>
+				<td>${formatUsageNumber(record.promptTokens)}</td>
+				<td>${formatUsageNumber(record.completionTokens)}</td>
+				<td>${formatUsageNumber(record.reasoningTokens)}</td>
+				<td>${formatUsageNumber(record.totalTokens)}</td>
+				<td>${formatUsageCost(record.requestCostUsd)}</td>
+			</tr>`;
+		})
+		.join("");
+}
 
 function renderProviders() {
 	// Get all unique providers
@@ -539,6 +595,8 @@ function resetModelForm() {
 	modelConfigIdInput.value = "";
 	modelBaseUrlInput.value = "";
 	modelFamilyInput.value = "";
+	modelInputPricePerMillionTokensInput.value = "";
+	modelOutputPricePerMillionTokensInput.value = "";
 	modelContextLengthInput.value = 128000;
 	modelMaxTokensInput.value = 4096;
 	modelVisionInput.value = "";
@@ -587,6 +645,10 @@ function collectModelFormData() {
 		configId: modelConfigIdInput.value.trim() || undefined,
 		baseUrl: modelBaseUrlInput.value.trim() || undefined,
 		family: modelFamilyInput.value.trim() || undefined,
+		inputPricePerMillionTokens:
+			modelInputPricePerMillionTokensInput.value !== "" ? parseFloat(modelInputPricePerMillionTokensInput.value) : undefined,
+		outputPricePerMillionTokens:
+			modelOutputPricePerMillionTokensInput.value !== "" ? parseFloat(modelOutputPricePerMillionTokensInput.value) : undefined,
 		context_length: modelContextLengthInput.value ? parseInt(modelContextLengthInput.value) : undefined,
 		max_tokens: modelMaxTokensInput.value ? parseInt(modelMaxTokensInput.value) : undefined,
 		vision: modelVisionInput.value ? modelVisionInput.value === "true" : undefined,
@@ -743,6 +805,20 @@ function validateModelData(modelData) {
 		return false;
 	}
 	if (
+		modelData.inputPricePerMillionTokens !== undefined &&
+		(isNaN(modelData.inputPricePerMillionTokens) || modelData.inputPricePerMillionTokens < 0)
+	) {
+		showModelError("Input Price must be a non-negative number.");
+		return false;
+	}
+	if (
+		modelData.outputPricePerMillionTokens !== undefined &&
+		(isNaN(modelData.outputPricePerMillionTokens) || modelData.outputPricePerMillionTokens < 0)
+	) {
+		showModelError("Output Price must be a non-negative number.");
+		return false;
+	}
+	if (
 		modelData.temperature !== undefined &&
 		(isNaN(modelData.temperature) || modelData.temperature < 0 || modelData.temperature > 2)
 	) {
@@ -896,6 +972,10 @@ function populateModelForm(model) {
 	modelConfigIdInput.value = model.configId || "";
 	modelBaseUrlInput.value = model.baseUrl || "";
 	modelFamilyInput.value = model.family || "";
+	modelInputPricePerMillionTokensInput.value =
+		model.inputPricePerMillionTokens ?? model.input_price_per_million_tokens ?? "";
+	modelOutputPricePerMillionTokensInput.value =
+		model.outputPricePerMillionTokens ?? model.output_price_per_million_tokens ?? "";
 	modelContextLengthInput.value = model.context_length || "";
 	modelMaxTokensInput.value = model.max_tokens || "";
 	modelVisionInput.value = model.vision !== undefined ? String(model.vision) : "";

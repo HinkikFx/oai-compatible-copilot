@@ -9,7 +9,7 @@ import {
 	Progress,
 } from "vscode";
 
-import type { HFModelItem } from "./types";
+import type { ApiUsage, HFModelItem } from "./types";
 
 import type { OllamaRequestBody } from "./ollama/ollamaTypes";
 
@@ -36,6 +36,7 @@ import { GeminiApi, buildGeminiGenerateContentUrl, type GeminiToolCallMeta } fro
 import type { GeminiGenerateContentRequest } from "./gemini/geminiTypes";
 import { CommonApi } from "./commonApi";
 import { logger } from "./logger";
+import { usageTracker } from "./usageTracker";
 
 /**
  * VS Code Chat provider backed by Hugging Face Inference Providers.
@@ -75,7 +76,7 @@ export class HuggingFaceChatModelProvider implements LanguageModelChatProvider {
 		_token: CancellationToken
 	): Promise<LanguageModelChatInformation[]> {
 		// VS Code may pass `silent: true` at runtime for background refresh (pre-v5 behaviour).
-		const opts = options as Record<string, unknown>;
+		const opts = options as unknown as Record<string, unknown>;
 		const silent = typeof opts.silent === "boolean" ? opts.silent : true;
 		return prepareLanguageModelChatInformation({ silent }, _token, this.secrets);
 	}
@@ -88,11 +89,25 @@ export class HuggingFaceChatModelProvider implements LanguageModelChatProvider {
 	 * @returns A promise that resolves to the number of tokens
 	 */
 	async provideTokenCount(
-		_model: LanguageModelChatInformation,
+		model: LanguageModelChatInformation,
 		text: string | LanguageModelChatRequestMessage,
 		_token: CancellationToken
 	): Promise<number> {
-		return countMessageTokens(text, { includeReasoningInRequest: true });
+		const config = vscode.workspace.getConfiguration();
+		const userModels = normalizeUserModels(config.get<unknown>("oaicopilot.models", []));
+		const parsedModelId = parseModelId(model.id);
+		const um =
+			userModels.find(
+				(um) =>
+					um.id === parsedModelId.baseId &&
+					((parsedModelId.configId && um.configId === parsedModelId.configId) ||
+						(!parsedModelId.configId && !um.configId))
+			) ?? userModels.find((um) => um.id === parsedModelId.baseId);
+		return countMessageTokens(text, {
+			includeReasoningInRequest: um?.include_reasoning_in_request ?? true,
+			tokenizerMode: um?.apiMode ?? "openai",
+			modelId: parsedModelId.baseId,
+		});
 	}
 
 	/**
@@ -152,6 +167,8 @@ export class HuggingFaceChatModelProvider implements LanguageModelChatProvider {
 		const requestStartTime = Date.now();
 		let inputPricePerMillion: number | undefined;
 		let outputPricePerMillion: number | undefined;
+		let apiUsage: ApiUsage | undefined;
+		let apiModeForUsage = "unknown";
 		try {
 			// get model config from user settings
 			const config = vscode.workspace.getConfiguration();
@@ -177,6 +194,7 @@ export class HuggingFaceChatModelProvider implements LanguageModelChatProvider {
 
 			// Check if using Ollama native API mode
 			const apiMode = um?.apiMode ?? "openai";
+			apiModeForUsage = apiMode;
 			const baseUrl = um?.baseUrl || config.get<string>("oaicopilot.baseUrl", "");
 
 			logger.info("request.start", {
@@ -189,6 +207,8 @@ export class HuggingFaceChatModelProvider implements LanguageModelChatProvider {
 			// Prepare model configuration
 			const modelConfig = {
 				includeReasoningInRequest: um?.include_reasoning_in_request ?? false,
+				tokenizerMode: apiMode,
+				modelId: parsedModelId.baseId,
 			};
 			inputPricePerMillion = um?.inputPricePerMillionTokens ?? um?.input_price_per_million_tokens;
 			outputPricePerMillion = um?.outputPricePerMillionTokens ?? um?.output_price_per_million_tokens;
@@ -313,7 +333,7 @@ export class HuggingFaceChatModelProvider implements LanguageModelChatProvider {
 				if (!response.body) {
 					throw new Error("No response body from Ollama API");
 				}
-				await ollamaApi.processStreamingResponse(response.body, trackingProgress, token);
+				apiUsage = await ollamaApi.processStreamingResponse(response.body, trackingProgress, token);
 			} else if (apiMode === "anthropic") {
 				// Anthropic API mode
 				const anthropicApi = new AnthropicApi(model.id);
@@ -361,7 +381,7 @@ export class HuggingFaceChatModelProvider implements LanguageModelChatProvider {
 				if (!response.body) {
 					throw new Error("No response body from Anthropic API");
 				}
-				await anthropicApi.processStreamingResponse(response.body, trackingProgress, token);
+				apiUsage = await anthropicApi.processStreamingResponse(response.body, trackingProgress, token);
 			} else if (apiMode === "openai-responses") {
 				// OpenAI Responses API mode
 				const openaiResponsesApi = new OpenaiResponsesApi(model.id);
@@ -469,7 +489,7 @@ export class HuggingFaceChatModelProvider implements LanguageModelChatProvider {
 				if (!response.body) {
 					throw new Error("No response body from Responses API");
 				}
-				await openaiResponsesApi.processStreamingResponse(response.body, trackingProgress, token);
+				apiUsage = await openaiResponsesApi.processStreamingResponse(response.body, trackingProgress, token);
 
 				// Append a stateful marker so future requests can reuse `previous_response_id` (Copilot Chat style).
 				const responseId = openaiResponsesApi.responseId;
@@ -541,7 +561,7 @@ export class HuggingFaceChatModelProvider implements LanguageModelChatProvider {
 				if (!response.body) {
 					throw new Error("No response body from Gemini API");
 				}
-				await geminiApi.processStreamingResponse(response.body, trackingProgress, token);
+				apiUsage = await geminiApi.processStreamingResponse(response.body, trackingProgress, token);
 			} else {
 				// OpenAI compatible API mode (default)
 				const openaiApi = new OpenaiApi(model.id);
@@ -585,7 +605,7 @@ export class HuggingFaceChatModelProvider implements LanguageModelChatProvider {
 				if (!response.body) {
 					throw new Error("No response body from OAI Compatible API");
 				}
-				await openaiApi.processStreamingResponse(response.body, trackingProgress, token);
+				apiUsage = await openaiApi.processStreamingResponse(response.body, trackingProgress, token);
 			}
 		} catch (err) {
 			console.error("[OAI Compatible Model Provider] Chat request failed", {
@@ -602,22 +622,42 @@ export class HuggingFaceChatModelProvider implements LanguageModelChatProvider {
 			throw err;
 		} finally {
 			const durationMs = Date.now() - requestStartTime;
+			const effectivePromptTokens = apiUsage?.promptTokens ?? requestUsage.promptTokens;
+			const effectiveCompletionTokens = apiUsage?.completionTokens ?? requestUsage.completionTokens;
+			const effectiveReasoningTokens = apiUsage?.reasoningTokens ?? requestUsage.reasoningTokens;
+			const effectiveTotalTokens = apiUsage?.totalTokens ?? effectivePromptTokens + effectiveCompletionTokens;
+			const effectiveCachedPromptTokens = apiUsage?.cachedPromptTokens ?? 0;
+			const usageSource: ApiUsage["source"] = apiUsage?.source ?? "estimate";
 			const requestCostUsd =
 				inputPricePerMillion !== undefined || outputPricePerMillion !== undefined
-					? ((requestUsage.promptTokens * (inputPricePerMillion ?? 0)) +
-							(requestUsage.completionTokens * (outputPricePerMillion ?? 0))) /
+					? ((effectivePromptTokens * (inputPricePerMillion ?? 0)) +
+							(effectiveCompletionTokens * (outputPricePerMillion ?? 0))) /
 						1_000_000
 					: undefined;
-			this._sessionPromptTokens += requestUsage.promptTokens;
-			this._sessionCompletionTokens += requestUsage.completionTokens;
+			this._sessionPromptTokens += effectivePromptTokens;
+			this._sessionCompletionTokens += effectiveCompletionTokens;
 			if (requestCostUsd !== undefined) {
 				this._sessionCostUsd += requestCostUsd;
 			}
+			usageTracker.record({
+				modelId: model.id,
+				apiMode: apiModeForUsage,
+				requestInitiator: options.requestInitiator,
+				durationMs,
+				promptTokens: effectivePromptTokens,
+				completionTokens: effectiveCompletionTokens,
+				totalTokens: effectiveTotalTokens,
+				reasoningTokens: effectiveReasoningTokens,
+				cachedPromptTokens: effectiveCachedPromptTokens,
+				toolCallTokens: requestUsage.toolCallTokens,
+				usageSource,
+				requestCostUsd,
+			});
 			updateAgentUsageStatusBar(this.statusBarItem, {
 				modelId: model.id,
-				promptTokens: requestUsage.promptTokens,
-				completionTokens: requestUsage.completionTokens,
-				reasoningTokens: requestUsage.reasoningTokens,
+				promptTokens: effectivePromptTokens,
+				completionTokens: effectiveCompletionTokens,
+				reasoningTokens: effectiveReasoningTokens,
 				toolCallTokens: requestUsage.toolCallTokens,
 				requestCostUsd,
 				sessionPromptTokens: this._sessionPromptTokens,
@@ -627,10 +667,13 @@ export class HuggingFaceChatModelProvider implements LanguageModelChatProvider {
 			logger.info("request.end", {
 				modelId: model.id,
 				durationMs,
-				promptTokens: requestUsage.promptTokens,
-				completionTokens: requestUsage.completionTokens,
-				reasoningTokens: requestUsage.reasoningTokens,
+				promptTokens: effectivePromptTokens,
+				completionTokens: effectiveCompletionTokens,
+				totalTokens: effectiveTotalTokens,
+				reasoningTokens: effectiveReasoningTokens,
+				cachedPromptTokens: effectiveCachedPromptTokens,
 				toolCallTokens: requestUsage.toolCallTokens,
+				usageSource,
 				requestCostUsd,
 			});
 			// Update last request time after successful completion

@@ -7,7 +7,7 @@ import {
 	Progress,
 } from "vscode";
 
-import type { HFModelItem, ReasoningConfig } from "../types";
+import type { ApiUsage, HFModelItem, ReasoningConfig } from "../types";
 
 import type {
 	OpenAIChatMessage,
@@ -35,6 +35,23 @@ import { logger } from "../logger";
 export class OpenaiApi extends CommonApi<OpenAIChatMessage, Record<string, unknown>> {
 	constructor(modelId: string) {
 		super(modelId);
+	}
+
+	private parseUsage(value: unknown): ApiUsage | undefined {
+		if (!value || typeof value !== "object") {
+			return undefined;
+		}
+		const usage = value as Record<string, unknown>;
+		const details = usage.completion_tokens_details as Record<string, unknown> | undefined;
+		const promptDetails = usage.prompt_tokens_details as Record<string, unknown> | undefined;
+		return {
+			promptTokens: typeof usage.prompt_tokens === "number" ? usage.prompt_tokens : undefined,
+			completionTokens: typeof usage.completion_tokens === "number" ? usage.completion_tokens : undefined,
+			totalTokens: typeof usage.total_tokens === "number" ? usage.total_tokens : undefined,
+			reasoningTokens: typeof details?.reasoning_tokens === "number" ? details.reasoning_tokens : undefined,
+			cachedPromptTokens: typeof promptDetails?.cached_tokens === "number" ? promptDetails.cached_tokens : undefined,
+			source: "api",
+		};
 	}
 
 	/**
@@ -284,13 +301,14 @@ export class OpenaiApi extends CommonApi<OpenAIChatMessage, Record<string, unkno
 		responseBody: ReadableStream<Uint8Array>,
 		progress: Progress<LanguageModelResponsePart2>,
 		token: CancellationToken
-	): Promise<void> {
+	): Promise<ApiUsage | undefined> {
 		const modelId = this._modelId;
 		logger.debug("openai.stream.start", { modelId });
 
 		const reader = responseBody.getReader();
 		const decoder = new TextDecoder();
 		let buffer = "";
+		let apiUsage: ApiUsage | undefined;
 
 		try {
 			while (true) {
@@ -321,6 +339,7 @@ export class OpenaiApi extends CommonApi<OpenAIChatMessage, Record<string, unkno
 
 					try {
 						const parsed = JSON.parse(data);
+						apiUsage = this.parseUsage((parsed as Record<string, unknown>).usage) ?? apiUsage;
 						await this.processDelta(parsed, progress);
 					} catch (e) {
 						console.error("[OpenAI Provider] Failed to parse SSE chunk:", e, "data:", data);
@@ -342,6 +361,7 @@ export class OpenaiApi extends CommonApi<OpenAIChatMessage, Record<string, unkno
 			// If there's an active thinking sequence, end it first
 			this.reportEndThinking(progress);
 		}
+		return apiUsage;
 	}
 
 	/**

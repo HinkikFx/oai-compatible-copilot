@@ -11,6 +11,7 @@ import { logger } from "./logger";
 const DEFAULT_CONTEXT_LENGTH = 128000;
 const DEFAULT_MAX_TOKENS = 4096;
 const EXTENSION_LABEL = "OAICopilot";
+const DEFAULT_EDIT_TOOLS = ["find-replace", "multi-find-replace", "apply-patch", "code-rewrite"] as const;
 
 /**
  * Build the `configurationSchema` for a model if it supports any thinking/reasoning level control.
@@ -142,7 +143,7 @@ export async function prepareLanguageModelChatInformation(
 					capabilities: {
 						toolCalling: true,
 						imageInput: m?.vision ?? false,
-						editTools: m.editTools ?? ["find-replace", "multi-find-replace", "apply-patch", "code-rewrite"],
+						...({ editTools: m.editTools ?? DEFAULT_EDIT_TOOLS })
 					},
 					...(configurationSchema !== undefined ? { configurationSchema } : {}),
 				} satisfies LanguageModelChatInformation;
@@ -191,7 +192,7 @@ export async function prepareLanguageModelChatInformation(
 					capabilities: {
 						toolCalling: true,
 						imageInput: vision,
-						editTools: ["find-replace", "multi-find-replace", "apply-patch", "code-rewrite"],
+						...({ editTools: DEFAULT_EDIT_TOOLS })
 					},
 				} satisfies LanguageModelChatInformation);
 			}
@@ -213,7 +214,7 @@ export async function prepareLanguageModelChatInformation(
 					capabilities: {
 						toolCalling: true,
 						imageInput: true,
-						editTools: ["find-replace", "multi-find-replace", "apply-patch", "code-rewrite"],
+						...({ editTools: DEFAULT_EDIT_TOOLS })
 					},
 				} satisfies LanguageModelChatInformation);
 			}

@@ -159,3 +159,14 @@ export interface RetryConfig {
 
 /** Supports API mode. */
 export type HFApiMode = "openai" | "openai-responses" | "ollama" | "anthropic" | "gemini";
+
+export interface ApiUsage {
+	promptTokens?: number;
+	completionTokens?: number;
+	totalTokens?: number;
+	reasoningTokens?: number;
+	cachedPromptTokens?: number;
+	source: "api" | "estimate";
+}
+
+export type TokenizerMode = "openai" | "openai-responses" | "anthropic" | "gemini" | "ollama" | "generic";

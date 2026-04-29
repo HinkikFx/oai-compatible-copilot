@@ -3,6 +3,7 @@ import { LanguageModelChatRequestMessage, LanguageModelChatTool } from "vscode";
 import { tokenizerManager } from "./tokenizer/tokenizerManager";
 import { getImageDimensions } from "./tokenizer/imageUtils";
 import { createDataUrl } from "./utils";
+import type { TokenizerMode } from "./types";
 const OPENAI_RESPONSES_STATEFUL_MARKER_MIME = "application/vnd.oaicopilot.stateful-marker";
 
 /*
@@ -16,10 +17,10 @@ export const BaseTokensPerName = 1;
 
 export async function countMessageTokens(
 	text: string | LanguageModelChatRequestMessage,
-	modelConfig: { includeReasoningInRequest: boolean }
+	modelConfig: { includeReasoningInRequest: boolean; tokenizerMode?: TokenizerMode; modelId?: string }
 ): Promise<number> {
 	if (typeof text === "string") {
-		return textTokenLength(text);
+		return textTokenLength(text, modelConfig);
 	} else {
 		// For complex messages, calculate tokens for each part separately
 		let totalTokens = BaseTokensPerMessage + BaseTokensPerName;
@@ -27,7 +28,7 @@ export async function countMessageTokens(
 		for (const part of text.content) {
 			if (part instanceof vscode.LanguageModelTextPart) {
 				// Estimate tokens directly for plain text
-				totalTokens += await textTokenLength(part.value);
+				totalTokens += await textTokenLength(part.value, modelConfig);
 			} else if (part instanceof vscode.LanguageModelDataPart) {
 				// Internal provider markers are not sent to upstream models and must not affect token accounting.
 				if (part.mimeType === OPENAI_RESPONSES_STATEFUL_MARKER_MIME || part.mimeType === "cache_control") {
@@ -46,15 +47,15 @@ export async function countMessageTokens(
 			} else if (part instanceof vscode.LanguageModelToolCallPart) {
 				// Tool call token calculation
 				totalTokens += BaseTokensPerName;
-				totalTokens += await textTokenLength(JSON.stringify(part.input));
+				totalTokens += await textTokenLength(JSON.stringify(part.input), modelConfig);
 			} else if (part instanceof vscode.LanguageModelToolResultPart) {
 				// Tool result token calculation
-				totalTokens += await textTokenLength(JSON.stringify(part.content));
+				totalTokens += await textTokenLength(JSON.stringify(part.content), modelConfig);
 			} else if (part instanceof vscode.LanguageModelThinkingPart) {
 				// Thinking Token
 				if (modelConfig.includeReasoningInRequest) {
 					const thinkingText = Array.isArray(part.value) ? part.value.join("") : part.value;
-					totalTokens += await textTokenLength(thinkingText);
+					totalTokens += await textTokenLength(thinkingText, modelConfig);
 				}
 			} else {
 				console.warn(`Unknown part type: ${JSON.stringify(part)}`);
@@ -64,17 +65,34 @@ export async function countMessageTokens(
 	}
 }
 
-export async function textTokenLength(text: string): Promise<number> {
+export async function textTokenLength(
+	text: string,
+	modelConfig?: { tokenizerMode?: TokenizerMode; modelId?: string }
+): Promise<number> {
 	if (!text) {
 		return 0;
 	}
-	try {
-		return await tokenizerManager.countTokens(text);
-	} catch (e) {
-		// Token counting is part of context budgeting. Returning 0 disables useful
-		// context pressure signals, so fall back to a conservative character estimate.
+	const mode = modelConfig?.tokenizerMode ?? "openai";
+	// OpenAI-compatible models get the best available offline tokenizer.
+	// Other providers have model-specific tokenizers that are not available offline here,
+	// so use conservative provider-tuned estimates until real API usage arrives.
+	if (mode === "openai" || mode === "openai-responses") {
+		try {
+			return await tokenizerManager.countTokens(text);
+		} catch {
+			return Math.max(1, Math.ceil(text.length / 4));
+		}
+	}
+	if (mode === "anthropic") {
+		return Math.max(1, Math.ceil(text.length / 3.8));
+	}
+	if (mode === "gemini") {
 		return Math.max(1, Math.ceil(text.length / 4));
 	}
+	if (mode === "ollama") {
+		return Math.max(1, Math.ceil(text.length / 3.5));
+	}
+	return Math.max(1, Math.ceil(text.length / 4));
 }
 
 export async function countToolTokens(tools: readonly LanguageModelChatTool[]): Promise<number> {
