@@ -25,8 +25,8 @@ import {
 } from "./utils";
 
 import { prepareLanguageModelChatInformation } from "./provideModel";
-import { countMessageTokens } from "./provideToken";
-import { updateContextStatusBar } from "./statusBar";
+import { countMessageTokens, countToolTokens } from "./provideToken";
+import { updateAgentUsageStatusBar, updateContextStatusBar } from "./statusBar";
 import { OllamaApi } from "./ollama/ollamaApi";
 import { OpenaiApi } from "./openai/openaiApi";
 import { OpenaiResponsesApi } from "./openai/openaiResponsesApi";
@@ -49,6 +49,9 @@ export class HuggingFaceChatModelProvider implements LanguageModelChatProvider {
 
 	private readonly _geminiToolCallMetaByCallId = new Map<string, GeminiToolCallMeta>();
 	private readonly _openaiResponsesPreviousResponseIdUnsupportedBaseUrls = new Set<string>();
+	private _sessionPromptTokens = 0;
+	private _sessionCompletionTokens = 0;
+	private _sessionCostUsd = 0;
 
 	static readonly OPENAI_RESPONSES_STATEFUL_MARKER_MIME = "application/vnd.oaicopilot.stateful-marker";
 
@@ -109,9 +112,34 @@ export class HuggingFaceChatModelProvider implements LanguageModelChatProvider {
 		progress: Progress<LanguageModelResponsePart2>,
 		token: CancellationToken
 	): Promise<void> {
+		const requestUsage = {
+			promptTokens: 0,
+			completionTokens: 0,
+			reasoningTokens: 0,
+			toolCallTokens: 0,
+		};
+		const estimateTokens = (text: string): number => Math.max(0, Math.ceil(text.length / 4));
 		const trackingProgress: Progress<LanguageModelResponsePart2> = {
 			report: (part) => {
 				try {
+					if (part instanceof vscode.LanguageModelTextPart) {
+						requestUsage.completionTokens += estimateTokens(part.value);
+					} else if (part instanceof vscode.LanguageModelThinkingPart) {
+						const value = Array.isArray(part.value) ? part.value.join("") : part.value;
+						const tokens = estimateTokens(value);
+						requestUsage.reasoningTokens += tokens;
+						requestUsage.completionTokens += tokens;
+					} else if (part instanceof vscode.LanguageModelToolCallPart) {
+						let serialized = part.name;
+						try {
+							serialized += JSON.stringify(part.input ?? {});
+						} catch {
+							/* ignore */
+						}
+						const tokens = estimateTokens(serialized);
+						requestUsage.toolCallTokens += tokens;
+						requestUsage.completionTokens += tokens;
+					}
 					progress.report(part);
 				} catch (e) {
 					console.error("[OAI Compatible Model Provider] Progress.report failed", {
@@ -122,6 +150,8 @@ export class HuggingFaceChatModelProvider implements LanguageModelChatProvider {
 			},
 		};
 		const requestStartTime = Date.now();
+		let inputPricePerMillion: number | undefined;
+		let outputPricePerMillion: number | undefined;
 		try {
 			// get model config from user settings
 			const config = vscode.workspace.getConfiguration();
@@ -160,6 +190,13 @@ export class HuggingFaceChatModelProvider implements LanguageModelChatProvider {
 			const modelConfig = {
 				includeReasoningInRequest: um?.include_reasoning_in_request ?? false,
 			};
+			inputPricePerMillion = um?.inputPricePerMillionTokens ?? um?.input_price_per_million_tokens;
+			outputPricePerMillion = um?.outputPricePerMillionTokens ?? um?.output_price_per_million_tokens;
+			const promptTokenCounts = await Promise.all(
+				messages.map((message) => countMessageTokens(message, modelConfig).catch(() => 0))
+			);
+			const toolDefinitionTokens = options.tools && options.tools.length > 0 ? await countToolTokens(options.tools).catch(() => 0) : 0;
+			requestUsage.promptTokens = promptTokenCounts.reduce((sum, count) => sum + count, 0) + toolDefinitionTokens;
 
 			// Update Token Usage
 			void updateContextStatusBar(messages, options.tools, model, this.statusBarItem, modelConfig).catch((error) => {
@@ -565,7 +602,37 @@ export class HuggingFaceChatModelProvider implements LanguageModelChatProvider {
 			throw err;
 		} finally {
 			const durationMs = Date.now() - requestStartTime;
-			logger.info("request.end", { modelId: model.id, durationMs });
+			const requestCostUsd =
+				inputPricePerMillion !== undefined || outputPricePerMillion !== undefined
+					? ((requestUsage.promptTokens * (inputPricePerMillion ?? 0)) +
+							(requestUsage.completionTokens * (outputPricePerMillion ?? 0))) /
+						1_000_000
+					: undefined;
+			this._sessionPromptTokens += requestUsage.promptTokens;
+			this._sessionCompletionTokens += requestUsage.completionTokens;
+			if (requestCostUsd !== undefined) {
+				this._sessionCostUsd += requestCostUsd;
+			}
+			updateAgentUsageStatusBar(this.statusBarItem, {
+				modelId: model.id,
+				promptTokens: requestUsage.promptTokens,
+				completionTokens: requestUsage.completionTokens,
+				reasoningTokens: requestUsage.reasoningTokens,
+				toolCallTokens: requestUsage.toolCallTokens,
+				requestCostUsd,
+				sessionPromptTokens: this._sessionPromptTokens,
+				sessionCompletionTokens: this._sessionCompletionTokens,
+				sessionCostUsd: this._sessionCostUsd > 0 ? this._sessionCostUsd : requestCostUsd,
+			});
+			logger.info("request.end", {
+				modelId: model.id,
+				durationMs,
+				promptTokens: requestUsage.promptTokens,
+				completionTokens: requestUsage.completionTokens,
+				reasoningTokens: requestUsage.reasoningTokens,
+				toolCallTokens: requestUsage.toolCallTokens,
+				requestCostUsd,
+			});
 			// Update last request time after successful completion
 			this._lastRequestTime = Date.now();
 		}

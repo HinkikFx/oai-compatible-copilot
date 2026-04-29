@@ -175,6 +175,49 @@
 								"default": false,
 								"description": "Model support vision. Default is false."
 							},
+							"editTools": {
+                            	"type": "array",
+                                "items": {
+                                    "type": "string",
+                                    "enum": [
+                                        "find-replace",
+                                        "multi-find-replace",
+                                        "apply-patch",
+                                        "code-rewrite"
+                                    ]
+                                },
+                                "default": [
+                                    "find-replace",
+                                    "multi-find-replace",
+                                    "apply-patch",
+                                    "code-rewrite"
+                                ],
+                                "description": "Preferred VS Code edit tools for Copilot edit and agent workflows. Used as a capability hint; VS Code may still choose another edit strategy."
+                            },
+                            "inputPricePerMillionTokens": {
+                                "type": "number",
+                                "default": 0,
+                                "minimum": 0,
+                                "description": "Estimated input token price in USD per 1M tokens. Used only for local agent workflow cost display."
+                            },
+                            "outputPricePerMillionTokens": {
+                                "type": "number",
+                                "default": 0,
+                                "minimum": 0,
+                                "description": "Estimated output token price in USD per 1M tokens. Used only for local agent workflow cost display."
+                            },
+                            "input_price_per_million_tokens": {
+                                "type": "number",
+                                "default": 0,
+                                "minimum": 0,
+                                "description": "Snake_case alias for inputPricePerMillionTokens. Estimated input token price in USD per 1M tokens."
+                            },
+                            "output_price_per_million_tokens": {
+                                "type": "number",
+                                "default": 0,
+                                "minimum": 0,
+                                "description": "Snake_case alias for outputPricePerMillionTokens. Estimated output token price in USD per 1M tokens."
+                            },
 							"max_tokens": {
 								"type": "number",
 								"default": 4096,

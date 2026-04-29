@@ -98,3 +98,55 @@ Click to Open Configuration UI`;
 
 	statusBarItem.show();
 }
+
+export interface AgentUsageSnapshot {
+	modelId: string;
+	promptTokens: number;
+	completionTokens: number;
+	reasoningTokens?: number;
+	toolCallTokens?: number;
+	requestCostUsd?: number;
+	sessionPromptTokens: number;
+	sessionCompletionTokens: number;
+	sessionCostUsd?: number;
+}
+
+export function formatUsd(value: number | undefined): string {
+	if (value === undefined || !Number.isFinite(value)) {
+		return "n/a";
+	}
+	if (value > 0 && value < 0.0001) {
+		return `$${value.toExponential(2)}`;
+	}
+	return `$${value.toFixed(4)}`;
+}
+
+export function updateAgentUsageStatusBar(
+	statusBarItem: vscode.StatusBarItem,
+	usage: AgentUsageSnapshot
+): void {
+	const requestTotal = usage.promptTokens + usage.completionTokens;
+	const sessionTotal = usage.sessionPromptTokens + usage.sessionCompletionTokens;
+	statusBarItem.text = `$(symbol-parameter) ${formatTokenCount(requestTotal)} req / ${formatTokenCount(sessionTotal)} session`;
+	statusBarItem.tooltip = [
+		`Agent token usage for ${usage.modelId}`,
+		``,
+		`Last request:`,
+		` - Prompt: ${formatTokenCount(usage.promptTokens)}`,
+		` - Completion: ${formatTokenCount(usage.completionTokens)}`,
+		` - Reasoning: ${formatTokenCount(usage.reasoningTokens ?? 0)}`,
+		` - Tool calls: ${formatTokenCount(usage.toolCallTokens ?? 0)}`,
+		` - Total: ${formatTokenCount(requestTotal)}`,
+		` - Estimated cost: ${formatUsd(usage.requestCostUsd)}`,
+		``,
+		`Current VS Code session:`,
+		` - Prompt: ${formatTokenCount(usage.sessionPromptTokens)}`,
+		` - Completion: ${formatTokenCount(usage.sessionCompletionTokens)}`,
+		` - Total: ${formatTokenCount(sessionTotal)}`,
+		` - Estimated cost: ${formatUsd(usage.sessionCostUsd)}`,
+		``,
+		`Click to Open Configuration UI`,
+	].join("\n");
+	statusBarItem.backgroundColor = undefined;
+	statusBarItem.show();
+}

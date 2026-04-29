@@ -142,6 +142,7 @@ export async function prepareLanguageModelChatInformation(
 					capabilities: {
 						toolCalling: true,
 						imageInput: m?.vision ?? false,
+						editTools: m.editTools ?? ["find-replace", "multi-find-replace", "apply-patch", "code-rewrite"],
 					},
 					...(configurationSchema !== undefined ? { configurationSchema } : {}),
 				} satisfies LanguageModelChatInformation;
@@ -190,6 +191,7 @@ export async function prepareLanguageModelChatInformation(
 					capabilities: {
 						toolCalling: true,
 						imageInput: vision,
+						editTools: ["find-replace", "multi-find-replace", "apply-patch", "code-rewrite"],
 					},
 				} satisfies LanguageModelChatInformation);
 			}
@@ -211,6 +213,7 @@ export async function prepareLanguageModelChatInformation(
 					capabilities: {
 						toolCalling: true,
 						imageInput: true,
+						editTools: ["find-replace", "multi-find-replace", "apply-patch", "code-rewrite"],
 					},
 				} satisfies LanguageModelChatInformation);
 			}

@@ -29,6 +29,15 @@ export interface HFModelItem {
 	architecture?: HFArchitecture;
 	context_length?: number;
 	vision?: boolean;
+	/** Preferred VS Code edit tools for Copilot edit/agent workflows. */
+	editTools?: string[];
+	/** Estimated input token price in USD per 1M tokens for local usage/cost display. */
+	input_price_per_million_tokens?: number;
+	/** Estimated output token price in USD per 1M tokens for local usage/cost display. */
+	output_price_per_million_tokens?: number;
+	/** CamelCase aliases accepted by configuration UIs/schemas. */
+	inputPricePerMillionTokens?: number;
+	outputPricePerMillionTokens?: number;
 	max_tokens?: number;
 	// OpenAI new standard parameter
 	max_completion_tokens?: number;
